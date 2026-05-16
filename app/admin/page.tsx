@@ -6,7 +6,6 @@ import { supabase } from "@/lib/supabase";
 export default function AdminPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [checking, setChecking] = useState(true);
-
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -32,61 +31,38 @@ export default function AdminPage() {
     checkAdmin();
   }, []);
 
-  if (checking) {
-    return (
-      <main className="section">
-        <div className="container">
-          <p>正在验证管理员身份...</p>
-        </div>
-      </main>
-    );
-  }
-
-  if (!isAdmin) {
-    return (
-      <main className="section">
-        <div className="container">
-          <h2>无权访问</h2>
-          <p>当前账号不是管理员。</p>
-        </div>
-      </main>
-    );
-  }
-
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const formElement = event.currentTarget;
+    const form = new FormData(formElement);
 
     setLoading(true);
     setMessage("");
 
-    const form = new FormData(event.currentTarget);
-const imageFile = form.get("image") as File;
+    let imageUrl = "";
+    const imageFile = form.get("image") as File | null;
 
-let imageUrl = "";
+    if (imageFile && imageFile.size > 0) {
+      const fileName = `${Date.now()}-${imageFile.name}`;
 
-if (imageFile && imageFile.size > 0) {
-  const fileName = `${Date.now()}-${imageFile.name}`;
+      const { error: uploadError } = await supabase.storage
+        .from("product-images")
+        .upload(fileName, imageFile);
 
-  const { error: uploadError } = await supabase.storage
-    .from("product-images")
-    .upload(fileName, imageFile);
+      if (uploadError) {
+        setMessage("图片上传失败：" + uploadError.message);
+        setLoading(false);
+        return;
+      }
 
-  if (uploadError) {
-    setMessage("图片上传失败：" + uploadError.message);
-    setLoading(false);
-    return;
-  }
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("product-images").getPublicUrl(fileName);
 
-  const {
-    data: { publicUrl }
-  } = supabase.storage
-    .from("product-images")
-    .getPublicUrl(fileName);
+      imageUrl = publicUrl;
+    }
 
-  imageUrl = publicUrl;
-}
     const product = {
       title: String(form.get("title") || ""),
       subtitle: String(form.get("subtitle") || ""),
@@ -111,6 +87,27 @@ if (imageFile && imageFile.size > 0) {
     setLoading(false);
   }
 
+  if (checking) {
+    return (
+      <main className="section">
+        <div className="container">
+          <p>正在验证管理员身份...</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <main className="section">
+        <div className="container">
+          <h2>无权访问</h2>
+          <p>当前账号不是管理员。</p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="section">
       <div className="container" style={{ maxWidth: 860 }}>
@@ -123,6 +120,7 @@ if (imageFile && imageFile.size > 0) {
             <input className="input" name="subtitle" placeholder="一句话卖点，例如：客服、销售、运营都能用" />
             <input className="input" name="price" type="number" placeholder="价格，例如：49" required />
             <input className="input" name="emoji" placeholder="商品图标，例如：🧠" />
+
             <select className="input" name="category" defaultValue="">
               <option value="" disabled>选择分类</option>
               <option>提示词</option>
@@ -131,20 +129,20 @@ if (imageFile && imageFile.size > 0) {
               <option>壁纸素材</option>
               <option>电子书</option>
             </select>
-            <textarea name="description" rows={6} placeholder="商品详情介绍" />
-            <input
-                className="input"
-                name="image"
-                type="file"
-                accept="image/*"
-           />
+
+            <textarea className="input" name="description" rows={6} placeholder="商品详情介绍" />
+
+            <input className="input" name="image" type="file" accept="image/*" />
+
             <input className="input" name="download_name" placeholder="下载文件名，例如：demo.zip" />
+
             <textarea
               className="input"
               name="delivery_content"
               rows={4}
               placeholder="交付内容：链接、卡密、兑换码、教程地址等"
             />
+
             <button className="btn primary" type="submit" disabled={loading}>
               {loading ? "保存中..." : "保存商品"}
             </button>
