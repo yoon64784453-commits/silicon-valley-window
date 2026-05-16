@@ -1,35 +1,37 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-export default function BuyPage({
-  searchParams
-}: {
-  searchParams: { product_id?: string };
-}) {
+export default function BuyPage() {
+  const searchParams = useSearchParams();
   const [message, setMessage] = useState("正在创建订单...");
   const hasCreatedOrder = useRef(false);
+
   useEffect(() => {
     async function createOrder() {
       if (hasCreatedOrder.current) return;
       hasCreatedOrder.current = true;
-      const productId = searchParams.product_id;
+
+      const productId = searchParams.get("product_id");
 
       if (!productId) {
         setMessage("缺少商品 ID");
         return;
       }
-     const orderKey = `creating-order-${productId}`;
-     const lastCreatedAt = Number(sessionStorage.getItem(orderKey) || 0);
-     const now = Date.now();
 
-     if (lastCreatedAt && now - lastCreatedAt < 10000) {
-       window.location.href = "/dashboard";
-       return;
-     }   
+      const orderKey = `creating-order-${productId}`;
+      const lastCreatedAt = Number(sessionStorage.getItem(orderKey) || 0);
+      const now = Date.now();
 
-     sessionStorage.setItem(orderKey, String(now));
+      if (lastCreatedAt && now - lastCreatedAt < 10000) {
+        window.location.href = "/dashboard";
+        return;
+      }
+
+      sessionStorage.setItem(orderKey, String(now));
+
       const { data: userData } = await supabase.auth.getUser();
       const user = userData.user;
 
@@ -51,7 +53,7 @@ export default function BuyPage({
     }
 
     createOrder();
-  }, [searchParams.product_id]);
+  }, [searchParams]);
 
   return (
     <main className="section">
