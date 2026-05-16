@@ -35,19 +35,14 @@ export default async function ProductDetail({
 
   return (
     <main className="section">
-      <div className="container" style={{ maxWidth: 960 }}>
-        <div className="panel" style={{ padding: 28 }}>
-          <div className="cover" style={{ height: 360 }}>
+      <div className="container" style={{ maxWidth: 760 }}>
+        <div className="panel" style={{ padding: 40 }}>
+          <div className="cover detail-cover">
             {product.image_url ? (
               <img
-                src={product.image_url}
-                alt={product.title}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  borderRadius: "22px"
-                }}
+                 className="product-detail-image"
+                 src={product.image_url}
+                 alt={product.title}
               />
             ) : (
               product.emoji || "📦"

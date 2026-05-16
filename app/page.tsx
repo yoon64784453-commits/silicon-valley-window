@@ -6,28 +6,46 @@ export default function HomePage() {
   return (
     <main>
       <section className="hero">
-        <div className="container hero-grid">
-          <div>
-            <span className="badge">AI · 高效办公 · 智能体方案</span>
-            <h1>PromptBay</h1>
-            <p>
-              一个面向普通人的 AI 数字产品商城。
-            </p>
-            <div style={{ display: "flex", gap: 12, marginTop: 26, flexWrap: "wrap" }}>
-              <Link className="btn primary" href="/products">进入商城</Link>
-              <Link className="btn" href="/admin">上传商品</Link>
-            </div>
-          </div>
-          <div className="hero-card">
-            <div className="orb" />
-            <div className="mock">
-              <div className="mock-row"><strong>用户注册登录</strong><span>✅</span></div>
-              <div className="mock-row"><strong>浏览虚拟产品</strong><span>🛒</span></div>
-              <div className="mock-row"><strong>模拟购买解锁</strong><span>🔓</span></div>
-              <div className="mock-row"><strong>下载数字文件</strong><span>📦</span></div>
-            </div>
-          </div>
+        <section className="hero">
+  <div className="container">
+    <div className="hero-premium">
+      <div className="hero-glow" />
+
+      <span className="badge">AI工具 · 数字商品 · 智能体部署</span>
+
+      <h1>PromptBay</h1>
+
+      <p className="hero-subtitle">
+        一个面向 AI 时代的数字商品市场，汇集工具权益、Prompt 资产、智能体方案与交付服务。
+      </p>
+
+      <div className="hero-actions">
+        <Link className="btn primary" href="/products">
+          进入市场
+        </Link>
+
+        <Link className="btn" href="/dashboard">
+          查看订单
+        </Link>
+      </div>
+
+      <div className="hero-metrics">
+        <div>
+          <strong>AI Market</strong>
+          <span>数字权益交付</span>
         </div>
+        <div>
+          <strong>Agent Ready</strong>
+          <span>智能体部署方案</span>
+        </div>
+        <div>
+          <strong>Code / URL</strong>
+          <span>卡密链接一键复制</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
       </section>
 
       <section className="section">
