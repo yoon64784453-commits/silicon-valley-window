@@ -71,7 +71,7 @@ export default function DashboardPage() {
       if (error) {
         setMessage("读取订单失败：" + error.message);
       } else {
-        setOrders((data as Order[]) || []);
+        setOrders((data as unknown as Order[]) || []);
         setMessage("");
       }
     }
