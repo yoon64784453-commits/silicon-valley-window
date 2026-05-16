@@ -8,11 +8,10 @@ export default function HomePage() {
       <section className="hero">
         <div className="container hero-grid">
           <div>
-            <span className="badge">AI工具 · 虚拟产品 · 智能体方案</span>
-            <h1>硅谷之窗 AI</h1>
+            <span className="badge">AI · 高效办公 · 智能体方案</span>
+            <h1>PromptBay</h1>
             <p>
-              一个面向普通人的 AI 数字产品商城。你可以上传提示词包、课程资料、智能体模板、
-              壁纸素材、电子书等虚拟产品，用户登录后购买并下载。
+              一个面向普通人的 AI 数字产品商城。
             </p>
             <div style={{ display: "flex", gap: 12, marginTop: 26, flexWrap: "wrap" }}>
               <Link className="btn primary" href="/products">进入商城</Link>

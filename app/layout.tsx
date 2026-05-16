@@ -4,8 +4,8 @@ import "./globals.css";
 import { Navbar } from "@/components/Navbar";
 
 export const metadata: Metadata = {
-  title: "硅谷之窗｜AI虚拟产品商城",
-  description: "一个用于销售 AI 提示词包、智能体模板、课程资料与数字素材的虚拟产品商城 MVP。"
+  title: "PromptBay｜数字商城",
+  description: "一个用于销售 AI 提示词、智能体模板、高效办公模板、课程资料与数字素材的虚拟产品商城 MVP。"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
