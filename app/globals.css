@@ -442,3 +442,28 @@ select {
   border-color: rgba(255, 90, 120, .35);
   background: rgba(255, 90, 120, .10);
 }
+.sidebar-auth {
+  display: flex;
+  gap: 10px;
+}
+
+.auth-btn {
+  flex: 1;
+  text-align: center;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(126,255,224,.14);
+  color: #dffef7;
+  font-weight: 700;
+}
+
+.auth-btn:hover {
+  background: rgba(255,255,255,.08);
+}
+
+.primary-auth {
+  background: linear-gradient(135deg,#20ffc8,#19b8ff);
+  color: #04110d;
+  border: none;
+}

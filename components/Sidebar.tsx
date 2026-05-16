@@ -1,11 +1,41 @@
 "use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 export function Sidebar() {
-  async function logout() {
-  await supabase.auth.signOut();
-  window.location.href = "/";
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  useEffect(() => {
+  async function loadUser() {
+    const { data } = await supabase.auth.getUser();
+    setUserEmail(data.user?.email || null);
+  }
+
+  loadUser();
+
+  const {
+    data: { subscription }
+  } = supabase.auth.onAuthStateChange((_event, session) => {
+    setUserEmail(session?.user?.email || null);
+  });
+
+  return () => {
+    subscription.unsubscribe();
+  };
+}, []);
+ async function logout() {
+  const { error } = await supabase.auth.signOut();
+
+  if (error) {
+    console.error(error);
+    return;
+  }
+
+  localStorage.clear();
+  sessionStorage.clear();
+
+  window.location.replace("/");
 }
   return (
     <aside className="sidebar">
@@ -25,15 +55,31 @@ export function Sidebar() {
         <Link href="/admin">开发者中心</Link>
       </nav>
       <div className="sidebar-user">
-        <div className="sidebar-user-info">
-          <strong>已登录</strong>
-          <span>PromptBay User</span>
-        </div>
 
-        <button className="side-logout" onClick={logout}>
-          退出登录
-        </button>
+  {userEmail ? (
+    <>
+      <div className="sidebar-user-info">
+        <strong>已登录</strong>
+        <span>{userEmail}</span>
       </div>
+
+      <button className="side-logout" onClick={logout}>
+        退出登录
+      </button>
+    </>
+  ) : (
+    <div className="sidebar-auth">
+      <Link className="auth-btn" href="/login">
+        登录
+      </Link>
+
+      <Link className="auth-btn primary-auth" href="/login">
+        注册
+      </Link>
+    </div>
+  )}
+
+</div>
     </aside>
   );
 }
