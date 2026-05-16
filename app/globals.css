@@ -386,3 +386,59 @@ select {
   border-radius: 32px;
   display: block;
 }
+.sidebar-user {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 24px;
+
+  padding: 16px;
+  border-radius: 22px;
+
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(126,255,224,.12);
+
+  backdrop-filter: blur(20px);
+}
+
+.sidebar-user-info strong {
+  display: block;
+  color: #effffb;
+  font-size: 14px;
+}
+
+.sidebar-user-info span {
+  display: block;
+  margin-top: 4px;
+  color: #7c908b;
+  font-size: 12px;
+}
+
+.side-logout {
+  width: 100%;
+  margin-top: 14px;
+
+  padding: 12px;
+  border-radius: 14px;
+
+  border: 1px solid rgba(255,90,120,.16);
+
+  background: rgba(255,90,120,.08);
+
+  color: #ffb8c6;
+
+  cursor: pointer;
+
+  transition: .18s ease;
+}
+
+.side-logout:hover {
+  background: rgba(255,90,120,.14);
+  color: white;
+}
+
+.side-logout:hover {
+  color: #ffffff;
+  border-color: rgba(255, 90, 120, .35);
+  background: rgba(255, 90, 120, .10);
+}
