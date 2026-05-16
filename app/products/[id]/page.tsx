@@ -1,0 +1,81 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+
+export const dynamic = "force-dynamic";
+
+type Product = {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  price: number;
+  emoji: string | null;
+  category: string | null;
+  description: string | null;
+  download_name: string | null;
+  image_url: string | null;
+};
+
+export default async function ProductDetail({
+  params
+}: {
+  params: { id: string };
+}) {
+  const { data: product, error } = await supabase
+    .from("products")
+    .select(
+      "id,title,subtitle,price,emoji,category,description,download_name,image_url"
+    )
+    .eq("id", params.id)
+    .single();
+
+  if (error || !product) {
+    notFound();
+  }
+
+  return (
+    <main className="section">
+      <div className="container" style={{ maxWidth: 960 }}>
+        <div className="panel" style={{ padding: 28 }}>
+          <div className="cover" style={{ height: 360 }}>
+            {product.image_url ? (
+              <img
+                src={product.image_url}
+                alt={product.title}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  borderRadius: "22px"
+                }}
+              />
+            ) : (
+              product.emoji || "📦"
+            )}
+          </div>
+
+          <span className="tag">{product.category || "虚拟产品"}</span>
+
+          <h1 style={{ fontSize: 48 }}>{product.title}</h1>
+
+          <p>{product.description || product.subtitle}</p>
+
+          <div className="price">¥{product.price}</div>
+
+          <p style={{ marginTop: 12 }}>
+            下载文件：{product.download_name || "购买后可见"}
+          </p>
+
+          <div style={{ display: "flex", gap: 12, marginTop: 24, flexWrap: "wrap" }}>
+            <Link className="btn primary" href={`/buy?product_id=${product.id}`}>
+              模拟购买并生成订单
+            </Link>
+            <Link className="btn" href="/products">
+              返回商城
+            </Link>
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
