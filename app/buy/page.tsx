@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-export default function BuyPage() {
+function BuyContent() {
   const searchParams = useSearchParams();
   const [message, setMessage] = useState("正在创建订单...");
   const hasCreatedOrder = useRef(false);
@@ -61,5 +61,21 @@ export default function BuyPage() {
         <p>{message}</p>
       </div>
     </main>
+  );
+}
+
+export default function BuyPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="section">
+          <div className="container">
+            <p>正在加载购买页面...</p>
+          </div>
+        </main>
+      }
+    >
+      <BuyContent />
+    </Suspense>
   );
 }
