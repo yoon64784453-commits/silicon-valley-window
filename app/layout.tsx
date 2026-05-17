@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Sidebar } from "@/components/Sidebar";
+import FloatingAI from "./components/FloatingAI";
 
 export const metadata: Metadata = {
   title: "PromptBay",
@@ -19,7 +20,10 @@ export default function RootLayout({
           <Sidebar />
           <main className="main-content">{children}</main>
         </div>
+        <FloatingAI />
       </body>
+      
     </html>
+    
   );
 }
