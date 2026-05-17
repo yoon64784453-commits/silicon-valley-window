@@ -13,8 +13,7 @@ export async function POST(req: Request) {
       },
 
       body: JSON.stringify({
-        model: body.model || "deepseek/deepseek-chat-v3",
-
+        model: body.model || "openrouter/free",
         messages: [
           {
             role: "user",

@@ -40,8 +40,6 @@ export default async function ProductsPage() {
         <h2>虚拟产品商城</h2>
 
         <p>
-          这里会自动读取你在后台上传到
-          Supabase 的商品。
         </p>
 
         <div

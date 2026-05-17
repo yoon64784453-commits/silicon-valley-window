@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 type Order = {
   id: string;
   created_at: string;
+  status: string | null;
   products: {
     id: string;
     title: string;
@@ -22,23 +23,24 @@ type Order = {
 export default function DashboardPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [message, setMessage] = useState("正在读取订单...");
+
   async function deleteOrder(orderId: string) {
-  const confirmed = window.confirm("确定要删除这条订单记录吗？");
+    const confirmed = window.confirm("确定要删除这条订单记录吗？");
 
-  if (!confirmed) return;
+    if (!confirmed) return;
 
-  const { error } = await supabase
-    .from("orders")
-    .delete()
-    .eq("id", orderId);
+    const { error } = await supabase
+      .from("orders")
+      .delete()
+      .eq("id", orderId);
 
-  if (error) {
-    alert("删除失败：" + error.message);
-    return;
+    if (error) {
+      alert("删除失败：" + error.message);
+      return;
+    }
+
+    setOrders((prev) => prev.filter((order) => order.id !== orderId));
   }
-
-  setOrders((prev) => prev.filter((order) => order.id !== orderId));
-}
 
   useEffect(() => {
     async function loadOrders() {
@@ -54,6 +56,7 @@ export default function DashboardPage() {
         .select(`
           id,
           created_at,
+          status,
           products (
             id,
             title,
@@ -70,10 +73,11 @@ export default function DashboardPage() {
 
       if (error) {
         setMessage("读取订单失败：" + error.message);
-      } else {
-        setOrders((data as unknown as Order[]) || []);
-        setMessage("");
+        return;
       }
+
+      setOrders((data as unknown as Order[]) || []);
+      setMessage("");
     }
 
     loadOrders();
@@ -83,13 +87,11 @@ export default function DashboardPage() {
     <main className="section">
       <div className="container">
         <h2>我的订单 / 下载中心</h2>
-        <p>这里会显示当前账号已经购买的虚拟产品。</p>
+        <p>付款确认后，这里会显示商品交付内容。</p>
 
         {message && <p>{message}</p>}
 
-        {!message && orders.length === 0 && (
-          <p>你还没有购买任何商品。</p>
-        )}
+        {!message && orders.length === 0 && <p>你还没有购买任何商品。</p>}
 
         <div className="grid" style={{ marginTop: 24 }}>
           {orders.map((order) => {
@@ -97,45 +99,57 @@ export default function DashboardPage() {
 
             if (!item) return null;
 
+            const isPaid = order.status === "paid";
+
             return (
               <div className="card" key={order.id}>
                 <div className="cover">
                   {item.image_url ? (
                     <img
+                      className="product-image"
                       src={item.image_url}
                       alt={item.title}
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                        borderRadius: "22px"
-                      }}
                     />
                   ) : (
                     item.emoji || "📦"
                   )}
                 </div>
 
-                <span className="tag">已购买</span>
+                <span className="tag">
+                  {isPaid ? "已付款" : "待确认"}
+                </span>
+
                 <h3>{item.title}</h3>
                 <p>{item.subtitle}</p>
+
                 <div className="price">¥{item.price}</div>
 
                 <div style={{ marginTop: 14 }}>
-                  <p style={{ wordBreak: "break-all" }}>
-                    交付内容：{item.delivery_content || "暂无交付内容"}
-                  </p>
+                  {isPaid ? (
+                    <>
+                      <p style={{ wordBreak: "break-all" }}>
+                        交付内容：{item.delivery_content || "暂无交付内容"}
+                      </p>
 
-                  <button
-                    className="btn primary"
-                    style={{ width: "100%" }}
-                    onClick={() => {
-                      navigator.clipboard.writeText(item.delivery_content || "");
-                      alert("已复制交付内容");
-                    }}
-                  >
-                    一键复制
-                  </button>
+                      <button
+                        className="btn primary"
+                        style={{ width: "100%" }}
+                        onClick={() => {
+                          navigator.clipboard.writeText(
+                            item.delivery_content || ""
+                          );
+                          alert("已复制交付内容");
+                        }}
+                      >
+                        一键复制
+                      </button>
+                    </>
+                  ) : (
+                    <p>
+                      订单状态：待付款确认。确认后将显示交付内容。
+                    </p>
+                  )}
+
                   <button
                     className="btn"
                     style={{ width: "100%", marginTop: 10 }}

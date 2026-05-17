@@ -77,22 +77,30 @@ export default function ChatPage() {
             这是你的网站接入的第一个 AI。
           </p>
           <select
-            className="input"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            style={{ marginTop: 16 }}
-        >
-            <option value="deepseek/deepseek-chat-v3">
-              DeepSeek Chat V3
-            </option>
+              className="input"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              style={{ marginTop: 16 }}
+         >
+              <option value="openrouter/free">
+               OpenRouter Free
+              </option>
 
-            <option value="qwen/qwen3-235b-a22b">
-              Qwen 3
-            </option>
+              <option value="deepseek/deepseek-chat-v3-0324:free">
+               DeepSeek Free
+              </option>
 
-            <option value="meta-llama/llama-3.3-70b-instruct">
-              Llama 3.3 70B
-            </option>
+              <option value="deepseek/deepseek-r1:free">
+               DeepSeek R1 Free
+              </option>
+
+              <option value="qwen/qwen3-235b-a22b:free">
+               Qwen 3 Free
+              </option>
+
+              <option value="meta-llama/llama-3.3-70b-instruct:free">
+               Llama 3 Free
+              </option>
           </select>
           <textarea
             className="input"
