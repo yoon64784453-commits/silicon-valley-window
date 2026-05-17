@@ -54,6 +54,9 @@ export function Sidebar() {
         <Link href="/message-board">留言板</Link>
         <Link href="/admin">开发者中心</Link>
       </nav>
+      <Link className="ai-assistant-entry" href="/chat">
+       AI 助手
+      </Link>
       <div className="sidebar-user">
 
   {userEmail ? (
@@ -67,6 +70,7 @@ export function Sidebar() {
         退出登录
       </button>
     </>
+    
   ) : (
     <div className="sidebar-auth">
       <Link className="auth-btn" href="/login">

@@ -126,7 +126,7 @@ select {
   right: 20px;
   bottom: 24px;
 
-  padding: 16px;
+  padding: 18px;
   border-radius: 22px;
 
   background: rgba(255, 255, 255, 0.04);
@@ -814,4 +814,44 @@ textarea::placeholder {
 
   box-shadow:
     0 0 18px rgba(34, 255, 205, 0.18);
+}
+.ai-assistant-entry {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+
+  border-radius: 16px;
+
+  color: #22ffd0;
+  font-weight: 800;
+
+  background: rgba(34, 255, 205, 0.08);
+  border: 1px solid rgba(34, 255, 205, 0.18);
+
+  transition: all 0.25s ease;
+}
+
+.ai-assistant-entry:hover {
+  color: #041311;
+  background: linear-gradient(135deg, #20ffc8, #19b8ff);
+  box-shadow: 0 0 22px rgba(34, 255, 205, 0.22);
+  transform: translateY(-2px);
+}
+.sidebar-user {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-assistant-entry {
+  margin-bottom: 0;
+}
+
+.sidebar-auth {
+  display: flex;
+  gap: 10px;
 }
