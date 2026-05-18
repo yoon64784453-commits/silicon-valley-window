@@ -83,30 +83,27 @@ export default function AdminPage() {
 }
 
   async function confirmOrder(orderId: string) {
-    const confirmed = window.confirm(
-      "确认该订单已付款？"
-    );
+  const confirmed = window.confirm("确认该订单已付款并立即解锁交付内容？");
 
-    if (!confirmed) return;
+  if (!confirmed) return;
 
-    const { error } = await supabase
-      .from("orders")
-      .update({
-        status: "paid",
-      })
-      .eq("id", orderId);
+  const { error } = await supabase
+    .from("orders")
+    .update({
+      status: "paid",
+      paid_at: new Date().toISOString(),
+    })
+    .eq("id", orderId);
 
-    if (error) {
-      alert("确认失败：" + error.message);
-      return;
-    }
-
-    alert("订单已确认付款");
-
-    setOrders((prev) =>
-      prev.filter((order) => order.id !== orderId)
-    );
+  if (error) {
+    alert("确认失败：" + error.message);
+    return;
   }
+
+  alert("订单已确认，用户下载中心已自动解锁交付内容。");
+
+  setOrders((prev) => prev.filter((order) => order.id !== orderId));
+}
 
   async function handleSubmit(
     event: React.FormEvent<HTMLFormElement>

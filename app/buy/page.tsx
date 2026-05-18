@@ -97,31 +97,44 @@ function BuyContent() {
         const user = userData.user;
 
         if (!user) {
-          window.location.href = "/login";
+          window.location.replace("/login");
           return;
         }
 
-        const { data: productData } = await supabase
+        const { data: productData, error: productError } = await supabase
           .from("products")
           .select("id,title,price")
           .eq("id", productId)
           .single();
 
-        if (productData) {
-          setProduct(productData as Product);
-        }
-
-        const orderKey = `creating-order-${productId}`;
-        const lastCreatedAt = Number(sessionStorage.getItem(orderKey) || 0);
-        const now = Date.now();
-
-        if (lastCreatedAt && now - lastCreatedAt < 10000) {
-          setCreated(true);
-          setMessage("订单已创建，请完成支付。");
+        if (productError || !productData) {
+          setMessage("商品不存在或已下架。");
           return;
         }
 
-        sessionStorage.setItem(orderKey, String(now));
+        setProduct(productData as Product);
+
+        const { data: existingOrder } = await supabase
+          .from("orders")
+          .select("id,status")
+          .eq("user_id", user.id)
+          .eq("product_id", productId)
+          .in("status", ["pending", "paid"])
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (existingOrder?.status === "paid") {
+          setCreated(true);
+          setMessage("你已购买过该商品，交付内容已解锁。");
+          return;
+        }
+
+        if (existingOrder?.status === "pending") {
+          setCreated(true);
+          setMessage("订单已存在，请完成支付后等待确认。");
+          return;
+        }
 
         const { error } = await supabase.from("orders").insert({
           user_id: user.id,
@@ -144,20 +157,41 @@ function BuyContent() {
 
     createOrder();
   }, [searchParams]);
+  async function startPay() {
+  setMessage("正在创建支付订单...");
+
+  const response = await fetch("/api/pay", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      productId: searchParams.get("product_id"),
+      payType: payMethod,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (data.error) {
+    setMessage(data.error);
+    return;
+  }
+
+  if (data.paid) {
+    window.location.href = "/dashboard";
+    return;
+  }
+
+  window.location.href = data.payUrl;
+}
 
   const payMethodText = payMethod === "wechat" ? "微信支付" : "支付宝";
 
   return (
     <main className="section">
       <div className="container" style={{ maxWidth: 980 }}>
-        <div
-          className="panel"
-          style={{
-            padding: 0,
-            borderRadius: 36,
-            overflow: "hidden",
-          }}
-        >
+        <div className="panel" style={{ padding: 0, borderRadius: 36, overflow: "hidden" }}>
           <div
             className="checkout-header"
             style={{
@@ -171,11 +205,7 @@ function BuyContent() {
           >
             <div>
               <span className="tag">Secure Checkout</span>
-
-              <h2 style={{ marginTop: 16, marginBottom: 8 }}>
-                PromptBay Checkout
-              </h2>
-
+              <h2 style={{ marginTop: 16, marginBottom: 8 }}>PromptBay Checkout</h2>
               <p style={{ margin: 0 }}>{message}</p>
             </div>
 
@@ -198,14 +228,7 @@ function BuyContent() {
             </div>
           </div>
 
-          <div
-            className="checkout-grid"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1.05fr .95fr",
-              gap: 0,
-            }}
-          >
+          <div className="checkout-grid" style={{ display: "grid", gridTemplateColumns: "1.05fr .95fr" }}>
             <div style={{ padding: 32 }}>
               <h3 style={{ marginTop: 0 }}>选择支付方式</h3>
 
@@ -221,7 +244,6 @@ function BuyContent() {
                   }}
                 >
                   <strong>微信 / 支付宝扫码</strong>
-
                   <p style={{ marginBottom: 0 }}>
                     桌面端请查看右侧二维码；手机端点击此处展开付款二维码。
                   </p>
@@ -237,13 +259,8 @@ function BuyContent() {
                         border: "1px solid rgba(255,255,255,.08)",
                       }}
                     >
-                      <PayMethodTabs
-                        payMethod={payMethod}
-                        setPayMethod={setPayMethod}
-                      />
-
+                      <PayMethodTabs payMethod={payMethod} setPayMethod={setPayMethod} />
                       <PaymentQr payMethod={payMethod} />
-
                       <p style={{ textAlign: "center", marginBottom: 0 }}>
                         请使用{payMethodText}扫码支付
                       </p>
@@ -261,7 +278,6 @@ function BuyContent() {
                   }}
                 >
                   <strong>信用卡支付 / Stripe</strong>
-
                   <p style={{ marginBottom: 0 }}>
                     即将上线。后续可接入 Stripe Checkout，实现真实支付回调。
                   </p>
@@ -278,25 +294,17 @@ function BuyContent() {
                 }}
               >
                 <strong>订单状态</strong>
-
                 <p style={{ marginBottom: 0 }}>
                   {created
-                    ? "待付款确认。管理员确认后，交付内容会在下载中心解锁。"
+                    ? "订单已生成。付款后由管理员确认，确认完成后交付内容会自动在下载中心解锁。"
                     : "正在创建订单，请稍候。"}
                 </p>
               </div>
 
-              <div
-                style={{
-                  display: "flex",
-                  gap: 12,
-                  marginTop: 28,
-                  flexWrap: "wrap",
-                }}
-              >
-                <Link className="btn" href="/dashboard">
-                  查看订单状态
-                </Link>
+              <div style={{ display: "flex", gap: 12, marginTop: 28, flexWrap: "wrap" }}>
+                <button className="btn primary" onClick={startPay}>
+                  资源解锁
+                </button>
 
                 <Link className="btn" href="/products">
                   返回商城
@@ -321,16 +329,9 @@ function BuyContent() {
                   border: "1px solid rgba(255,255,255,.08)",
                 }}
               >
-                <PayMethodTabs
-                  payMethod={payMethod}
-                  setPayMethod={setPayMethod}
-                />
-
+                <PayMethodTabs payMethod={payMethod} setPayMethod={setPayMethod} />
                 <PaymentQr payMethod={payMethod} />
-
-                <p style={{ textAlign: "center", marginBottom: 0 }}>
-                  {payMethodText}二维码
-                </p>
+                <p style={{ textAlign: "center", marginBottom: 0 }}>{payMethodText}二维码</p>
               </div>
 
               <div
@@ -343,18 +344,9 @@ function BuyContent() {
                 }}
               >
                 <strong>订单摘要</strong>
-
-                <p style={{ marginBottom: 0 }}>
-                  商品：{product?.title || "正在读取商品信息"}
-                </p>
-
-                <p style={{ marginBottom: 0 }}>
-                  应付金额：¥{product?.price ?? "--"}
-                </p>
-
-                <p style={{ marginBottom: 0 }}>
-                  支付方式：{payMethodText}
-                </p>
+                <p style={{ marginBottom: 0 }}>商品：{product?.title || "正在读取商品信息"}</p>
+                <p style={{ marginBottom: 0 }}>应付金额：¥{product?.price ?? "--"}</p>
+                <p style={{ marginBottom: 0 }}>支付方式：{payMethodText}</p>
               </div>
 
               <div
@@ -367,9 +359,8 @@ function BuyContent() {
                 }}
               >
                 <strong>付款后请等待确认</strong>
-
                 <p style={{ marginBottom: 0 }}>
-                  当前为人工确认模式。付款后，管理员会在后台确认订单并解锁交付内容。
+                  当前为人工确认模式。确认付款后，系统会自动解锁交付内容。
                 </p>
               </div>
             </div>
