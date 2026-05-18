@@ -29,11 +29,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "支付环境变量未配置完整" }, { status: 500 });
   }
 
-  const { data: userData } = await supabase.auth.getUser();
+  const authHeader = request.headers.get("authorization");
+  const token = authHeader?.replace("Bearer ", "");
 
-  if (!userData.user) {
+  if (!token) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
-  }
+ }
+
+  const { data: userData, error: userError } = await supabase.auth.getUser(token);
+
+ if (userError || !userData.user) {
+  return NextResponse.json({ error: "登录状态失效，请重新登录" }, { status: 401 });
+}
 
   const { data: product, error: productError } = await supabase
     .from("products")

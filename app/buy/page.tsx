@@ -160,10 +160,19 @@ function BuyContent() {
   async function startPay() {
   setMessage("正在创建支付订单...");
 
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+
+  if (!token) {
+    window.location.href = "/login";
+    return;
+  }
+
   const response = await fetch("/api/pay", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
       productId: searchParams.get("product_id"),
@@ -186,7 +195,7 @@ function BuyContent() {
   window.location.href = data.payUrl;
 }
 
-  const payMethodText = payMethod === "wechat" ? "微信支付" : "支付宝";
+const payMethodText = payMethod === "wechat" ? "微信支付" : "支付宝";
 
   return (
     <main className="section">
