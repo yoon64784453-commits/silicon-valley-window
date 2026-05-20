@@ -1,156 +1,214 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { supabase } from "@/lib/supabase";
+
+type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+};
+
+const STORAGE_KEY = "promptbay-chat-history";
+
+const WELCOME_MESSAGE: ChatMessage = {
+  id: "welcome",
+  role: "assistant",
+  content: "\u4f60\u597d\uff0c\u6211\u662f PromptBay AI\u3002\u4f60\u53ef\u4ee5\u95ee\u6211\u5546\u54c1\u3001\u8ba2\u5355\u6216\u4f7f\u7528\u5efa\u8bae\u3002",
+  createdAt: "",
+};
+
+function createMessage(role: ChatMessage["role"], content: string): ChatMessage {
+  const id =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? role + "-" + crypto.randomUUID()
+      : role + "-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+
+  return {
+    id,
+    role,
+    content,
+    createdAt: new Date().toLocaleTimeString("zh-CN", {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  };
+}
 
 export default function ChatPage() {
   const [message, setMessage] = useState("");
+  const [model, setModel] = useState("openrouter/free");
+  const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  const [model, setModel] = useState("deepseek/deepseek-chat-v3");
+  useEffect(() => {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
 
-  const [reply, setReply] = useState("");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as ChatMessage[];
 
-  const [loading, setLoading] =
-    useState(false);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed);
+        }
+      } catch {
+        window.localStorage.removeItem(STORAGE_KEY);
+      }
+    }
+
+    setHistoryLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!historyLoaded) return;
+
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [historyLoaded, messages]);
+
+  function appendAssistant(content: string) {
+    setMessages((current) => [...current, createMessage("assistant", content)]);
+  }
 
   async function sendMessage() {
-    if (!message.trim()) return;
+    const prompt = message.trim();
 
+    if (loading || !prompt) return;
+
+    setMessage("");
     setLoading(true);
-
-    setReply("");
+    setMessages((current) => [...current, createMessage("user", prompt)]);
 
     try {
-      const response = await fetch(
-        "/api/chat",
-        {
-          method: "POST",
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
 
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
+      if (!token) {
+        appendAssistant("\u8bf7\u5148\u767b\u5f55\u540e\u4f7f\u7528 AI \u52a9\u624b\u3002");
+        return;
+      }
 
-          body: JSON.stringify({
-            message,
-            model,
-          }),
-        }
-      );
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+        body: JSON.stringify({
+          message: prompt,
+          model,
+        }),
+      });
 
-      const data =
-        await response.json();
+      const data = await response.json().catch(() => ({}));
 
-      const aiText =
-        data.choices?.[0]?.message
-          ?.content || "AI没有回复";
+      if (!response.ok) {
+        appendAssistant(data.error || "AI\u8bf7\u6c42\u5931\u8d25");
+        return;
+      }
 
-      setReply(aiText);
-
+      appendAssistant(data.choices?.[0]?.message?.content || "AI\u6ca1\u6709\u56de\u590d");
     } catch (error) {
-      setReply("请求失败");
-
       console.error(error);
-
+      appendAssistant("\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002");
     } finally {
       setLoading(false);
     }
   }
 
+  function handleMessageKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      void sendMessage();
+    }
+  }
+
+  function clearHistory() {
+    setMessages([WELCOME_MESSAGE]);
+    window.localStorage.removeItem(STORAGE_KEY);
+  }
+
   return (
     <main className="section">
-      <div
-        className="container"
-        style={{
-          maxWidth: 900,
-        }}
-      >
-        <div
-          className="panel"
-          style={{
-            padding: 28,
-            borderRadius: 32,
-          }}
-        >
-          <h2>PromptBay AI 助手</h2>
-
-          <p>
-            这是你的网站接入的第一个 AI。
-          </p>
-          <select
-              className="input"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              style={{ marginTop: 16 }}
-         >
-              <option value="openrouter/free">
-               OpenRouter Free
-              </option>
-
-              <option value="deepseek/deepseek-chat-v3-0324:free">
-               DeepSeek Free
-              </option>
-
-              <option value="deepseek/deepseek-r1:free">
-               DeepSeek R1 Free
-              </option>
-
-              <option value="qwen/qwen3-235b-a22b:free">
-               Qwen 3 Free
-              </option>
-
-              <option value="meta-llama/llama-3.3-70b-instruct:free">
-               Llama 3 Free
-              </option>
-          </select>
-          <textarea
-            className="input"
-            rows={6}
-            placeholder="输入你的问题..."
-            value={message}
-            onChange={(e) =>
-              setMessage(
-                e.target.value
-              )
-            }
-            style={{
-              marginTop: 20,
-            }}
-          />
-
-          <button
-            className="btn primary"
-            onClick={sendMessage}
-            disabled={loading}
-            style={{
-              marginTop: 16,
-            }}
-          >
-            {loading
-              ? "AI思考中..."
-              : "发送"}
-          </button>
-
-          {reply && (
-            <div
-              className="panel"
-              style={{
-                marginTop: 24,
-                padding: 22,
-                borderRadius: 24,
-              }}
-            >
-              <h3>AI 回复</h3>
-
-              <p
-                style={{
-                  whiteSpace:
-                    "pre-wrap",
-                }}
-              >
-                {reply}
-              </p>
+      <div className="container" style={{ maxWidth: 960 }}>
+        <div className="panel chat-surface">
+          <div className="chat-toolbar">
+            <div>
+              <h2>{"PromptBay AI \u52a9\u624b"}</h2>
+              <p>{"\u8fd9\u662f\u4f60\u7684\u7f51\u7ad9\u63a5\u5165\u7684\u7b2c\u4e00\u4e2a AI\u3002"}</p>
             </div>
-          )}
+
+            <button className="btn" type="button" onClick={clearHistory}>
+              {"\u6e05\u7a7a"}
+            </button>
+          </div>
+
+          <select
+            className="input"
+            value={model}
+            onChange={(event) => setModel(event.target.value)}
+            style={{ marginTop: 16 }}
+          >
+            <option value="openrouter/free">Free Router</option>
+            <option value="openrouter/owl-alpha">Owl Alpha</option>
+            <option value="google/gemma-4-31b-it:free">Gemma 4 31B Free</option>
+            <option value="openai/gpt-oss-20b:free">GPT OSS 20B Free</option>
+            <option value="qwen/qwen3-coder:free">Qwen3 Coder Free</option>
+          </select>
+
+          <div className="chat-thread" aria-live="polite">
+            {messages.map((item) => (
+              <div className={"chat-row " + item.role} key={item.id}>
+                <div className="chat-bubble">
+                  <div className="chat-meta">
+                    <span>{item.role === "user" ? "\u4f60" : "PromptBay AI"}</span>
+                    {item.createdAt && <span>{item.createdAt}</span>}
+                  </div>
+                  <div>{item.content}</div>
+                </div>
+              </div>
+            ))}
+
+            {loading && (
+              <div className="chat-row assistant">
+                <div className="chat-bubble">
+                  <div className="chat-meta">
+                    <span>PromptBay AI</span>
+                  </div>
+                  <span className="chat-typing">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          <div className="chat-composer">
+            <textarea
+              className="input chat-input"
+              rows={4}
+              placeholder={"\u8f93\u5165\u4f60\u7684\u95ee\u9898..."}
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              onKeyDown={handleMessageKeyDown}
+            />
+
+            <button
+              className="btn primary"
+              type="button"
+              onClick={sendMessage}
+              disabled={loading || !message.trim()}
+            >
+              {loading ? "AI\u601d\u8003\u4e2d..." : "\u53d1\u9001"}
+            </button>
+          </div>
         </div>
       </div>
     </main>

@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { supabase } from "@/lib/supabase";
+import { createSupabaseForToken } from "@/lib/supabase-server";
+
+type PayRequestBody = {
+  productId?: unknown;
+  payType?: unknown;
+};
 
 function signParams(params: Record<string, string>, key: string) {
   const signStr =
@@ -13,11 +18,26 @@ function signParams(params: Record<string, string>, key: string) {
   return crypto.createHash("md5").update(signStr).digest("hex");
 }
 
+function getBearerToken(request: NextRequest) {
+  const authHeader = request.headers.get("authorization");
+  const match = authHeader?.match(/^Bearer\s+(.+)$/i);
+
+  return match?.[1] || null;
+}
+
 export async function POST(request: NextRequest) {
-  const { productId, payType } = await request.json();
+  let body: PayRequestBody;
+
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+  }
+
+  const productId = typeof body.productId === "string" ? body.productId : "";
 
   if (!productId) {
-    return NextResponse.json({ error: "缺少商品ID" }, { status: 400 });
+    return NextResponse.json({ error: "Missing product id." }, { status: 400 });
   }
 
   const pid = process.env.PAYFM_PID;
@@ -26,21 +46,37 @@ export async function POST(request: NextRequest) {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
 
   if (!pid || !key || !gateway || !siteUrl) {
-    return NextResponse.json({ error: "支付环境变量未配置完整" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Payment environment variables are incomplete." },
+      { status: 500 }
+    );
   }
 
-  const authHeader = request.headers.get("authorization");
-  const token = authHeader?.replace("Bearer ", "");
+  const token = getBearerToken(request);
 
   if (!token) {
-    return NextResponse.json({ error: "请先登录" }, { status: 401 });
- }
+    return NextResponse.json({ error: "Please sign in first." }, { status: 401 });
+  }
+
+  let supabase;
+
+  try {
+    supabase = createSupabaseForToken(token);
+  } catch {
+    return NextResponse.json(
+      { error: "Supabase environment variables are incomplete." },
+      { status: 500 }
+    );
+  }
 
   const { data: userData, error: userError } = await supabase.auth.getUser(token);
 
- if (userError || !userData.user) {
-  return NextResponse.json({ error: "登录状态失效，请重新登录" }, { status: 401 });
-}
+  if (userError || !userData.user) {
+    return NextResponse.json(
+      { error: "Session expired. Please sign in again." },
+      { status: 401 }
+    );
+  }
 
   const { data: product, error: productError } = await supabase
     .from("products")
@@ -49,10 +85,10 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (productError || !product) {
-    return NextResponse.json({ error: "商品不存在" }, { status: 404 });
+    return NextResponse.json({ error: "Product not found." }, { status: 404 });
   }
 
-  const { data: existingOrder } = await supabase
+  const { data: existingOrder, error: existingOrderError } = await supabase
     .from("orders")
     .select("id,status")
     .eq("user_id", userData.user.id)
@@ -62,10 +98,15 @@ export async function POST(request: NextRequest) {
     .limit(1)
     .maybeSingle();
 
+  if (existingOrderError) {
+    console.error("Failed to read existing order", existingOrderError);
+    return NextResponse.json({ error: "Failed to read order." }, { status: 500 });
+  }
+
   if (existingOrder?.status === "paid") {
     return NextResponse.json({
       paid: true,
-      message: "你已购买过该商品",
+      message: "Product already purchased.",
     });
   }
 
@@ -83,7 +124,8 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (orderError || !newOrder) {
-      return NextResponse.json({ error: "创建订单失败" }, { status: 500 });
+      console.error("Failed to create order", orderError);
+      return NextResponse.json({ error: "Failed to create order." }, { status: 500 });
     }
 
     orderId = newOrder.id;
@@ -91,7 +133,7 @@ export async function POST(request: NextRequest) {
 
   const params: Record<string, string> = {
     pid,
-    type: payType === "wechat" ? "wechat" : "alipay",
+    type: body.payType === "wechat" ? "wechat" : "alipay",
     out_trade_no: orderId,
     notify_url: `${siteUrl}/api/pay/notify`,
     return_url: `${siteUrl}/dashboard`,
@@ -103,21 +145,39 @@ export async function POST(request: NextRequest) {
 
   params.sign = signParams(params, key);
 
-  const body = new URLSearchParams(params);
-
   const payResponse = await fetch(gateway, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
     },
-    body,
+    body: new URLSearchParams(params),
   });
 
-  const data = await payResponse.json();
+  const responseText = await payResponse.text();
+  let data: any;
 
-  if (data.code !== 1) {
+  try {
+    data = JSON.parse(responseText);
+  } catch {
+    console.error("Payment gateway returned non-JSON response", {
+      status: payResponse.status,
+      body: responseText.slice(0, 500),
+    });
+
+    return NextResponse.json(
+      { error: "Payment gateway response is invalid." },
+      { status: 502 }
+    );
+  }
+
+  if (!payResponse.ok || data.code !== 1) {
+    console.error("Payment order creation failed", {
+      status: payResponse.status,
+      data,
+    });
+
     return NextResponse.json({
-      error: data.msg || "支付订单创建失败",
+      error: data.msg || "Failed to create payment order.",
       raw: data,
     });
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 type PendingOrder = {
@@ -13,11 +13,13 @@ type PendingOrder = {
     title: string;
     price: number;
   } | null;
-
-  users: {
-    email: string;
-  } | null;
 };
+
+async function getAccessToken() {
+  const { data } = await supabase.auth.getSession();
+
+  return data.session?.access_token || null;
+}
 
 export default function AdminPage() {
   const [isAdmin, setIsAdmin] = useState(false);
@@ -28,75 +30,87 @@ export default function AdminPage() {
 
   const [orders, setOrders] = useState<PendingOrder[]>([]);
 
+  const loadPendingOrders = useCallback(async (tokenOverride?: string) => {
+    const token = tokenOverride || (await getAccessToken());
+
+    if (!token) {
+      window.location.href = "/login";
+      return;
+    }
+
+    const response = await fetch("/api/admin/orders", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      setMessage(result.error || "读取待确认订单失败。");
+      return;
+    }
+
+    setOrders((result.orders as PendingOrder[]) || []);
+  }, []);
+
   useEffect(() => {
     async function checkAdmin() {
-      const { data } = await supabase.auth.getUser();
+      const token = await getAccessToken();
 
-      const userEmail = data.user?.email;
-      const adminEmail =
-        process.env.NEXT_PUBLIC_ADMIN_EMAIL;
-
-      if (!userEmail) {
+      if (!token) {
         window.location.href = "/login";
         return;
       }
 
-      if (userEmail === adminEmail) {
-        setIsAdmin(true);
+      try {
+        const response = await fetch("/api/admin/check", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
 
-        loadPendingOrders();
+        const result = await response.json();
+
+        if (response.ok && result.isAdmin) {
+          setIsAdmin(true);
+          await loadPendingOrders(token);
+        } else {
+          setMessage(result.error || "管理员验证失败。");
+        }
+      } catch {
+        setMessage("管理员验证失败，请稍后重试。");
+      } finally {
+        setChecking(false);
       }
-
-      setChecking(false);
     }
 
     checkAdmin();
-  }, []);
-
-  async function loadPendingOrders() {
-  const { data, error } = await supabase
-    .from("orders")
-    .select(`
-      id,
-      created_at,
-      status,
-      user_id,
-
-      products (
-        title,
-        price
-      )
-    `)
-    .eq("status", "pending")
-    .order("created_at", {
-      ascending: false,
-    });
-
-  if (error) {
-    console.error("读取待确认订单失败：", error);
-    setMessage("读取待确认订单失败：" + error.message);
-    return;
-  }
-
-  console.log("待确认订单：", data);
-  setOrders((data as unknown as PendingOrder[]) || []);
-}
+  }, [loadPendingOrders]);
 
   async function confirmOrder(orderId: string) {
   const confirmed = window.confirm("确认该订单已付款并立即解锁交付内容？");
 
   if (!confirmed) return;
 
-  const { error } = await supabase
-    .from("orders")
-    .update({
-      status: "paid",
-      paid_at: new Date().toISOString(),
-    })
-    .eq("id", orderId);
+  const token = await getAccessToken();
 
-  if (error) {
-    alert("确认失败：" + error.message);
+  if (!token) {
+    window.location.href = "/login";
+    return;
+  }
+
+  const response = await fetch(`/api/admin/orders/${orderId}/confirm`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    alert(result.error || "确认失败。");
     return;
   }
 
@@ -112,82 +126,30 @@ export default function AdminPage() {
 
     const formElement = event.currentTarget;
 
-    const form = new FormData(formElement);
-
     setLoading(true);
 
     setMessage("");
 
-    let imageUrl = "";
+    const token = await getAccessToken();
 
-    const imageFile =
-      form.get("image") as File | null;
-
-    if (imageFile && imageFile.size > 0) {
-      const fileName = `${Date.now()}-${imageFile.name}`;
-
-      const { error: uploadError } =
-        await supabase.storage
-          .from("product-images")
-          .upload(fileName, imageFile);
-
-      if (uploadError) {
-        setMessage(
-          "图片上传失败：" +
-            uploadError.message
-        );
-
-        setLoading(false);
-
-        return;
-      }
-
-      const {
-        data: { publicUrl },
-      } = supabase.storage
-        .from("product-images")
-        .getPublicUrl(fileName);
-
-      imageUrl = publicUrl;
+    if (!token) {
+      window.location.href = "/login";
+      return;
     }
 
-    const product = {
-      title: String(form.get("title") || ""),
+    const response = await fetch("/api/admin/products", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: new FormData(formElement),
+    });
 
-      subtitle: String(
-        form.get("subtitle") || ""
-      ),
+    const result = await response.json();
 
-      price: Number(form.get("price") || 0),
-
-      emoji: String(form.get("emoji") || "📦"),
-
-      category: String(
-        form.get("category") || "虚拟产品"
-      ),
-
-      description: String(
-        form.get("description") || ""
-      ),
-
-      download_name: String(
-        form.get("download_name") || ""
-      ),
-
-      delivery_content: String(
-        form.get("delivery_content") || ""
-      ),
-
-      image_url: imageUrl,
-    };
-
-    const { error } = await supabase
-      .from("products")
-      .insert(product);
-
-    if (error) {
+    if (!response.ok) {
       setMessage(
-        "保存失败：" + error.message
+        result.error || "保存失败。"
       );
     } else {
       setMessage(
@@ -216,9 +178,7 @@ export default function AdminPage() {
         <div className="container">
           <h2>无权访问</h2>
 
-          <p>
-            当前账号不是管理员。
-          </p>
+          <p>{message || "\u5f53\u524d\u8d26\u53f7\u4e0d\u662f\u7ba1\u7406\u5458\u3002"}</p>
         </div>
       </main>
     );
