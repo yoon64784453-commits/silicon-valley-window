@@ -1263,6 +1263,11 @@ textarea::placeholder {
   margin-top: 16px;
 }
 
+.ai-model-select {
+  height: 46px;
+  margin-top: 16px;
+}
+
 .chat-input {
   min-height: 112px;
   resize: vertical;
@@ -1334,8 +1339,12 @@ textarea::placeholder {
 
 @media (max-width: 760px) {
   .chat-surface {
-    padding: 18px;
-  }
+  padding: 18px;
+}
+
+.floating-ai-panel .ai-model-select {
+  margin-top: 14px;
+}
 
   .chat-thread {
     min-height: 300px;

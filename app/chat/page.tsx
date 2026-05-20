@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { AI_MODEL_OPTIONS, DEFAULT_AI_MODEL } from "@/lib/ai-models";
 import { supabase } from "@/lib/supabase";
 
 type ChatMessage = {
@@ -11,6 +12,7 @@ type ChatMessage = {
 };
 
 const STORAGE_KEY = "promptbay-chat-history";
+const MODEL_STORAGE_KEY = "promptbay-ai-model";
 
 const WELCOME_MESSAGE: ChatMessage = {
   id: "welcome",
@@ -38,13 +40,22 @@ function createMessage(role: ChatMessage["role"], content: string): ChatMessage 
 
 export default function ChatPage() {
   const [message, setMessage] = useState("");
-  const [model, setModel] = useState("openrouter/free");
+  const [model, setModel] = useState(DEFAULT_AI_MODEL);
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
+
+    if (
+      storedModel &&
+      AI_MODEL_OPTIONS.some((option) => option.value === storedModel)
+    ) {
+      setModel(storedModel);
+    }
+
     const stored = window.localStorage.getItem(STORAGE_KEY);
 
     if (stored) {
@@ -61,6 +72,10 @@ export default function ChatPage() {
 
     setHistoryLoaded(true);
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(MODEL_STORAGE_KEY, model);
+  }, [model]);
 
   useEffect(() => {
     if (!historyLoaded) return;
@@ -147,16 +162,16 @@ export default function ChatPage() {
           </div>
 
           <select
-            className="input"
+            className="input ai-model-select"
             value={model}
             onChange={(event) => setModel(event.target.value)}
             style={{ marginTop: 16 }}
           >
-            <option value="openrouter/free">Free Router</option>
-            <option value="openrouter/owl-alpha">Owl Alpha</option>
-            <option value="google/gemma-4-31b-it:free">Gemma 4 31B Free</option>
-            <option value="openai/gpt-oss-20b:free">GPT OSS 20B Free</option>
-            <option value="qwen/qwen3-coder:free">Qwen3 Coder Free</option>
+            {AI_MODEL_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
 
           <div className="chat-thread" aria-live="polite">

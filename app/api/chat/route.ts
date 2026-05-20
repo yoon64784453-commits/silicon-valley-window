@@ -1,15 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ALLOWED_AI_MODELS, DEFAULT_AI_MODEL } from "@/lib/ai-models";
 import { createSupabaseForToken } from "@/lib/supabase-server";
-
-const DEFAULT_MODEL = "openrouter/free";
-
-const ALLOWED_MODELS = new Set([
-  "openrouter/free",
-  "openrouter/owl-alpha",
-  "google/gemma-4-31b-it:free",
-  "openai/gpt-oss-20b:free",
-  "qwen/qwen3-coder:free",
-]);
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 10;
@@ -109,7 +100,7 @@ export async function POST(req: NextRequest) {
   }
 
   const requestedModel = typeof body.model === "string" ? body.model : "";
-  const model = ALLOWED_MODELS.has(requestedModel) ? requestedModel : DEFAULT_MODEL;
+  const model = ALLOWED_AI_MODELS.has(requestedModel) ? requestedModel : DEFAULT_AI_MODEL;
 
   const response = await fetch(
     "https://openrouter.ai/api/v1/chat/completions",

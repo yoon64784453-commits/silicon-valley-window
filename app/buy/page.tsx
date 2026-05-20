@@ -5,48 +5,15 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-type PayMethod = "wechat" | "alipay";
-
 type Product = {
   id: string;
   title: string;
   price: number;
 };
 
-function PayMethodTabs({
-  payMethod,
-  setPayMethod,
-}: {
-  payMethod: PayMethod;
-  setPayMethod: (method: PayMethod) => void;
-}) {
-  return (
-    <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-      <button
-        className={payMethod === "wechat" ? "btn primary" : "btn"}
-        type="button"
-        onClick={() => setPayMethod("wechat")}
-      >
-        微信支付
-      </button>
-
-      <button
-        className={payMethod === "alipay" ? "btn primary" : "btn"}
-        type="button"
-        onClick={() => setPayMethod("alipay")}
-      >
-        支付宝
-      </button>
-    </div>
-  );
-}
-
 function BuyContent() {
   const searchParams = useSearchParams();
-
   const [message, setMessage] = useState("正在读取商品信息...");
-  const [created, setCreated] = useState(false);
-  const [payMethod, setPayMethod] = useState<PayMethod>("wechat");
   const [product, setProduct] = useState<Product | null>(null);
 
   useEffect(() => {
@@ -82,7 +49,7 @@ function BuyContent() {
 
         const { data: existingOrder } = await supabase
           .from("orders")
-          .select("id,status,order_no")
+          .select("id,status")
           .eq("user_id", user.id)
           .eq("product_id", productId)
           .in("status", ["pending", "paid"])
@@ -91,65 +58,61 @@ function BuyContent() {
           .maybeSingle();
 
         if (existingOrder?.status === "paid") {
-          setCreated(true);
           setMessage("你已购买过该商品，交付内容已解锁。");
           return;
         }
 
         if (existingOrder?.status === "pending") {
-          setCreated(true);
-          setMessage("订单已存在。点击下方按钮继续进入支付FM收银台，付款后会自动核验。");
+          setMessage("订单已存在，可以继续前往收银台。");
           return;
         }
 
-        setMessage("选择支付方式后，系统会生成支付FM动态订单。");
-      } catch (err) {
-        console.error(err);
+        setMessage("确认订单后进入收银台。");
+      } catch (error) {
+        console.error(error);
         setMessage("发生未知错误，请稍后重试。");
       }
     }
 
     loadCheckout();
   }, [searchParams]);
+
   async function startPay() {
-  setMessage("正在创建支付订单...");
+    setMessage("正在创建支付订单...");
 
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData.session?.access_token;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
 
-  if (!token) {
-    window.location.href = "/login";
-    return;
+    if (!token) {
+      window.location.href = "/login";
+      return;
+    }
+
+    const response = await fetch("/api/pay", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        productId: searchParams.get("product_id"),
+      }),
+    });
+
+    const data = await response.json();
+
+    if (data.error) {
+      setMessage(data.error);
+      return;
+    }
+
+    if (data.paid) {
+      window.location.href = "/dashboard";
+      return;
+    }
+
+    window.location.href = data.payUrl;
   }
-
-  const response = await fetch("/api/pay", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      productId: searchParams.get("product_id"),
-      payType: payMethod,
-    }),
-  });
-
-  const data = await response.json();
-
-  if (data.error) {
-    setMessage(data.error);
-    return;
-  }
-
-  if (data.paid) {
-    window.location.href = "/dashboard";
-    return;
-  }
-
-  window.location.href = data.payUrl;
-}
-
-const payMethodText = payMethod === "wechat" ? "微信支付" : "支付宝";
 
   return (
     <main className="section">
@@ -193,63 +156,23 @@ const payMethodText = payMethod === "wechat" ? "微信支付" : "支付宝";
 
           <div className="checkout-grid" style={{ display: "grid", gridTemplateColumns: "1.05fr .95fr" }}>
             <div style={{ padding: 32 }}>
-              <h3 style={{ marginTop: 0 }}>选择支付方式</h3>
-
-              <div style={{ display: "grid", gap: 14, marginTop: 20 }}>
-                <div
-                  style={{
-                    padding: 18,
-                    borderRadius: 22,
-                    border: "1px solid rgba(126,255,224,.18)",
-                    background: "rgba(255,255,255,.045)",
-                  }}
-                >
-                  <PayMethodTabs payMethod={payMethod} setPayMethod={setPayMethod} />
-
-                  <strong>支付FM动态收银台</strong>
-                  <p style={{ marginBottom: 0 }}>
-                    系统会为当前订单生成专属支付链接。付款成功后，支付FM通知和订单页主动查单都会尝试自动解锁交付内容。
-                  </p>
-                </div>
-
-                <div
-                  style={{
-                    padding: 18,
-                    borderRadius: 22,
-                    border: "1px solid rgba(255,255,255,.08)",
-                    background: "rgba(255,255,255,.025)",
-                    opacity: 0.68,
-                  }}
-                >
-                  <strong>信用卡支付 / Stripe</strong>
-                  <p style={{ marginBottom: 0 }}>
-                    即将上线。后续可接入 Stripe Checkout，实现真实支付回调。
-                  </p>
-                </div>
-              </div>
+              <h3 style={{ marginTop: 0 }}>确认订单</h3>
 
               <div
                 style={{
-                  marginTop: 28,
+                  marginTop: 20,
                   padding: 18,
                   borderRadius: 22,
-                  background: "rgba(32,255,200,.06)",
-                  border: "1px solid rgba(32,255,200,.14)",
+                  border: "1px solid rgba(126,255,224,.18)",
+                  background: "rgba(255,255,255,.045)",
                 }}
               >
-                <strong>订单状态</strong>
-                <p style={{ marginBottom: 0 }}>
-                  {created
-                    ? "订单已生成。付款后系统会自动接收支付通知；如果通知延迟，刷新下载中心也会主动核验支付状态。"
-                    : "点击资源解锁后会创建支付订单并跳转支付FM收银台。"}
-                </p>
-              </div>
-
-              <div style={{ display: "flex", gap: 12, marginTop: 28, flexWrap: "wrap" }}>
-                <button className="btn primary" onClick={startPay}>
+                <button className="btn primary" style={{ width: "100%" }} onClick={startPay}>
                   前往支付FM收银台
                 </button>
+              </div>
 
+              <div style={{ display: "flex", gap: 12, marginTop: 20, flexWrap: "wrap" }}>
                 <Link className="btn" href="/products">
                   返回商城
                 </Link>
@@ -267,46 +190,19 @@ const payMethodText = payMethod === "wechat" ? "微信支付" : "支付宝";
             >
               <div
                 style={{
-                  padding: 18,
-                  borderRadius: 30,
+                  minHeight: 220,
+                  padding: 24,
+                  borderRadius: 28,
                   background: "rgba(255,255,255,.04)",
                   border: "1px solid rgba(255,255,255,.08)",
+                  display: "grid",
+                  alignContent: "center",
+                  gap: 12,
                 }}
               >
-                <strong>自动交付模式</strong>
-                <p style={{ marginBottom: 0 }}>
-                  不再依赖静态收款码。每次付款都会绑定专属订单号，方便系统识别付款并自动交付。
-                </p>
-              </div>
-
-              <div
-                style={{
-                  marginTop: 18,
-                  padding: 18,
-                  borderRadius: 22,
-                  background: "rgba(255,255,255,.035)",
-                  border: "1px solid rgba(255,255,255,.06)",
-                }}
-              >
-                <strong>订单摘要</strong>
-                <p style={{ marginBottom: 0 }}>商品：{product?.title || "正在读取商品信息"}</p>
-                <p style={{ marginBottom: 0 }}>应付金额：¥{product?.price ?? "--"}</p>
-                <p style={{ marginBottom: 0 }}>支付方式：{payMethodText}</p>
-              </div>
-
-              <div
-                style={{
-                  marginTop: 18,
-                  padding: 18,
-                  borderRadius: 22,
-                  background: "rgba(255,255,255,.035)",
-                  border: "1px solid rgba(255,255,255,.06)",
-                }}
-              >
-                <strong>付款后自动核验</strong>
-                <p style={{ marginBottom: 0 }}>
-                  支付通知成功时会立即解锁；如果网络导致通知没到，用户刷新下载中心也会触发主动查单。
-                </p>
+                <strong style={{ fontSize: 20 }}>订单摘要</strong>
+                <p style={{ margin: 0 }}>商品：{product?.title || "正在读取商品信息"}</p>
+                <p style={{ margin: 0 }}>应付金额：¥{product?.price ?? "--"}</p>
               </div>
             </div>
           </div>
