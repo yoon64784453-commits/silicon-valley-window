@@ -55,43 +55,51 @@ export default function MessageBoardPage() {
 
   return (
     <main className="section">
-      <div className="container" style={{ maxWidth: 900 }}>
-        <h2>留言板</h2>
-        <p>欢迎留下反馈、需求或购买前问题。</p>
-
-        <div className="panel" style={{ padding: 26, marginTop: 22 }}>
-          <form className="form" onSubmit={handleSubmit}>
-            <input className="input" name="name" placeholder="昵称" />
-
-            <textarea
-              className="input"
-              name="content"
-              rows={5}
-              placeholder="写下你的留言"
-              required
-            />
-
-            <button className="btn primary" type="submit">
-              发布留言
-            </button>
-          </form>
+      <div className="container message-board-container">
+        <div className="page-heading">
+          <span className="section-kicker">Feedback</span>
+          <h2>留言板</h2>
+          <p>欢迎留下反馈、需求或购买前问题。</p>
         </div>
 
-        <div className="grid" style={{ marginTop: 24 }}>
-          {messages.length === 0 ? (
-            <div className="card">
-              <h3>暂无留言</h3>
-              <p>第一条留言会显示在这里。</p>
-            </div>
-          ) : (
-            messages.map((message) => (
-              <article className="card" key={message.id}>
-                <span className="tag">{message.createdAt}</span>
-                <h3>{message.name}</h3>
-                <p style={{ whiteSpace: "pre-wrap" }}>{message.content}</p>
-              </article>
-            ))
-          )}
+        <div className="message-board-layout">
+          <div className="panel message-form-panel">
+            <form className="form" onSubmit={handleSubmit}>
+              <input className="input" name="name" placeholder="昵称" />
+
+              <textarea
+                className="input"
+                name="content"
+                rows={6}
+                placeholder="写下你的留言"
+                required
+              />
+
+              <button className="btn primary" type="submit">
+                发布留言
+              </button>
+            </form>
+          </div>
+
+          <div className="message-list">
+            {messages.length === 0 ? (
+              <div className="card message-card empty-message-card">
+                <span className="tag">等待第一条留言</span>
+                <h3>暂无留言</h3>
+                <p>第一条留言会显示在这里。</p>
+              </div>
+            ) : (
+              messages.map((message) => (
+                <article className="card message-card" key={message.id}>
+                  <div className="message-card-head">
+                    <h3>{message.name}</h3>
+                    <span className="tag">{message.createdAt}</span>
+                  </div>
+                  <p style={{ whiteSpace: "pre-wrap" }}>{message.content}</p>
+                </article>
+              ))
+            )}
+          </div>
         </div>
       </div>
     </main>

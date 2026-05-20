@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { usePathname } from "next/navigation";
 import { AI_MODEL_OPTIONS, DEFAULT_AI_MODEL } from "@/lib/ai-models";
 import { supabase } from "@/lib/supabase";
 
@@ -39,12 +40,14 @@ function createMessage(role: ChatMessage["role"], content: string): ChatMessage 
 }
 
 export default function FloatingAI() {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [model, setModel] = useState(DEFAULT_AI_MODEL);
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -85,8 +88,20 @@ export default function FloatingAI() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [historyLoaded, messages]);
 
-  function appendAssistant(content: string) {
-    setMessages((current) => [...current, createMessage("assistant", content)]);
+  function updateAssistant(messageId: string, content: string) {
+    setMessages((current) =>
+      current.map((item) => (item.id === messageId ? { ...item, content } : item))
+    );
+  }
+
+  function appendAssistantChunk(messageId: string, chunk: string) {
+    if (!chunk) return;
+
+    setMessages((current) =>
+      current.map((item) =>
+        item.id === messageId ? { ...item, content: item.content + chunk } : item
+      )
+    );
   }
 
   async function sendMessage() {
@@ -96,14 +111,25 @@ export default function FloatingAI() {
 
     setMessage("");
     setLoading(true);
-    setMessages((current) => [...current, createMessage("user", prompt)]);
+
+    const assistantMessage = createMessage("assistant", "");
+
+    setStreamingMessageId(assistantMessage.id);
+    setMessages((current) => [
+      ...current,
+      createMessage("user", prompt),
+      assistantMessage,
+    ]);
 
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
 
       if (!token) {
-        appendAssistant("\u8bf7\u5148\u767b\u5f55\u540e\u4f7f\u7528 AI \u52a9\u624b\u3002");
+        updateAssistant(
+          assistantMessage.id,
+          "\u8bf7\u5148\u767b\u5f55\u540e\u4f7f\u7528 AI \u52a9\u624b\u3002"
+        );
         return;
       }
 
@@ -119,18 +145,53 @@ export default function FloatingAI() {
         }),
       });
 
-      const data = await response.json().catch(() => ({}));
-
       if (!response.ok) {
-        appendAssistant(data.error || "AI\u8bf7\u6c42\u5931\u8d25");
+        const data = await response.json().catch(() => ({}));
+
+        updateAssistant(assistantMessage.id, data.error || "AI\u8bf7\u6c42\u5931\u8d25");
         return;
       }
 
-      appendAssistant(data.choices?.[0]?.message?.content || "AI\u65e0\u56de\u590d");
+      const reader = response.body?.getReader();
+
+      if (!reader) {
+        updateAssistant(assistantMessage.id, "AI\u6ca1\u6709\u8fd4\u56de\u53ef\u8bfb\u53d6\u7684\u56de\u590d\u3002");
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let received = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) {
+          break;
+        }
+
+        const chunk = decoder.decode(value, { stream: true });
+        received += chunk;
+        appendAssistantChunk(assistantMessage.id, chunk);
+      }
+
+      const rest = decoder.decode();
+
+      if (rest) {
+        received += rest;
+        appendAssistantChunk(assistantMessage.id, rest);
+      }
+
+      if (!received.trim()) {
+        updateAssistant(assistantMessage.id, "AI\u65e0\u56de\u590d");
+      }
     } catch {
-      appendAssistant("\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002");
+      updateAssistant(
+        assistantMessage.id,
+        "\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
+      );
     } finally {
       setLoading(false);
+      setStreamingMessageId(null);
     }
   }
 
@@ -144,6 +205,10 @@ export default function FloatingAI() {
   function clearHistory() {
     setMessages([WELCOME_MESSAGE]);
     window.localStorage.removeItem(STORAGE_KEY);
+  }
+
+  if (pathname === "/chat") {
+    return null;
   }
 
   return (
@@ -181,25 +246,20 @@ export default function FloatingAI() {
                   <span>{item.role === "user" ? "\u4f60" : "AI"}</span>
                   {item.createdAt && <span>{item.createdAt}</span>}
                 </div>
-                <div>{item.content}</div>
+                <div>
+                  {item.content || item.id === streamingMessageId ? (
+                    item.content || (
+                      <span className="chat-typing">
+                        <span />
+                        <span />
+                        <span />
+                      </span>
+                    )
+                  ) : null}
+                </div>
               </div>
             </div>
           ))}
-
-          {loading && (
-            <div className="chat-row assistant">
-              <div className="chat-bubble">
-                <div className="chat-meta">
-                  <span>AI</span>
-                </div>
-                <span className="chat-typing">
-                  <span />
-                  <span />
-                  <span />
-                </span>
-              </div>
-            </div>
-          )}
 
           <div ref={messagesEndRef} />
         </div>

@@ -35,6 +35,103 @@ function isRateLimited(userId: string) {
   return false;
 }
 
+function createOpenRouterTextStream(response: Response) {
+  const reader = response.body?.getReader();
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      if (!reader) {
+        controller.error(new Error("OpenRouter did not return a response body."));
+        return;
+      }
+
+      let buffer = "";
+      let closed = false;
+
+      const closeStream = () => {
+        if (!closed) {
+          closed = true;
+          controller.close();
+        }
+      };
+
+      const handleLine = (line: string) => {
+        if (closed) return;
+
+        const trimmed = line.trim();
+
+        if (!trimmed || trimmed.startsWith(":") || !trimmed.startsWith("data:")) {
+          return;
+        }
+
+        const payloadText = trimmed.slice("data:".length).trim();
+
+        if (payloadText === "[DONE]") {
+          closeStream();
+          return;
+        }
+
+        try {
+          const payload = JSON.parse(payloadText) as {
+            choices?: Array<{ delta?: { content?: string } }>;
+            error?: { message?: string };
+          };
+          const content = payload.choices?.[0]?.delta?.content;
+
+          if (content) {
+            controller.enqueue(encoder.encode(content));
+          }
+
+          if (payload.error?.message) {
+            controller.enqueue(encoder.encode(payload.error.message));
+          }
+        } catch (error) {
+          console.error("Failed to parse OpenRouter stream chunk", error);
+        }
+      };
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            handleLine(line);
+
+            if (closed) {
+              await reader.cancel().catch(() => undefined);
+              return;
+            }
+          }
+        }
+
+        buffer += decoder.decode();
+
+        if (buffer) {
+          handleLine(buffer);
+        }
+
+        closeStream();
+      } catch (error) {
+        console.error("OpenRouter stream failed", error);
+        controller.error(error);
+      } finally {
+        reader.releaseLock();
+      }
+    },
+  });
+}
+
 export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENROUTER_API_KEY;
 
@@ -117,6 +214,7 @@ export async function POST(req: NextRequest) {
 
       body: JSON.stringify({
         model,
+        stream: true,
         messages: [
           {
             role: "user",
@@ -141,7 +239,18 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const data = await response.json();
+  if (!response.body) {
+    return NextResponse.json(
+      { error: "AI stream unavailable." },
+      { status: 502 }
+    );
+  }
 
-  return NextResponse.json(data);
+  return new Response(createOpenRouterTextStream(response), {
+    headers: {
+      "Cache-Control": "no-cache, no-transform",
+      "Content-Type": "text/plain; charset=utf-8",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

@@ -220,19 +220,15 @@ export default function DashboardPage() {
     loadOrders();
   }, [loadOrders]);
 
+  const paidCount = orders.filter((order) => order.status === "paid").length;
+  const pendingCount = orders.filter((order) => order.status !== "paid").length;
+
   return (
     <main className="section">
       <div className="container orders-container">
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 16,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
+        <div className="orders-heading">
           <div>
+            <span className="section-kicker">Downloads</span>
             <h2>我的订单 / 下载中心</h2>
             <p>付款确认后，商品交付内容会自动在这里解锁。</p>
           </div>
@@ -241,6 +237,21 @@ export default function DashboardPage() {
             <RefreshCw size={16} />
             {loading ? "刷新中..." : "刷新订单"}
           </button>
+        </div>
+
+        <div className="orders-summary">
+          <div>
+            <span>全部订单</span>
+            <strong>{orders.length}</strong>
+          </div>
+          <div>
+            <span>已交付</span>
+            <strong>{paidCount}</strong>
+          </div>
+          <div className="warm-stat">
+            <span>待确认</span>
+            <strong>{pendingCount}</strong>
+          </div>
         </div>
 
         {message && <p>{message}</p>}

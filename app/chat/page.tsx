@@ -44,6 +44,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -84,8 +85,20 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [historyLoaded, messages]);
 
-  function appendAssistant(content: string) {
-    setMessages((current) => [...current, createMessage("assistant", content)]);
+  function updateAssistant(messageId: string, content: string) {
+    setMessages((current) =>
+      current.map((item) => (item.id === messageId ? { ...item, content } : item))
+    );
+  }
+
+  function appendAssistantChunk(messageId: string, chunk: string) {
+    if (!chunk) return;
+
+    setMessages((current) =>
+      current.map((item) =>
+        item.id === messageId ? { ...item, content: item.content + chunk } : item
+      )
+    );
   }
 
   async function sendMessage() {
@@ -95,14 +108,25 @@ export default function ChatPage() {
 
     setMessage("");
     setLoading(true);
-    setMessages((current) => [...current, createMessage("user", prompt)]);
+
+    const assistantMessage = createMessage("assistant", "");
+
+    setStreamingMessageId(assistantMessage.id);
+    setMessages((current) => [
+      ...current,
+      createMessage("user", prompt),
+      assistantMessage,
+    ]);
 
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
 
       if (!token) {
-        appendAssistant("\u8bf7\u5148\u767b\u5f55\u540e\u4f7f\u7528 AI \u52a9\u624b\u3002");
+        updateAssistant(
+          assistantMessage.id,
+          "\u8bf7\u5148\u767b\u5f55\u540e\u4f7f\u7528 AI \u52a9\u624b\u3002"
+        );
         return;
       }
 
@@ -118,19 +142,54 @@ export default function ChatPage() {
         }),
       });
 
-      const data = await response.json().catch(() => ({}));
-
       if (!response.ok) {
-        appendAssistant(data.error || "AI\u8bf7\u6c42\u5931\u8d25");
+        const data = await response.json().catch(() => ({}));
+
+        updateAssistant(assistantMessage.id, data.error || "AI\u8bf7\u6c42\u5931\u8d25");
         return;
       }
 
-      appendAssistant(data.choices?.[0]?.message?.content || "AI\u6ca1\u6709\u56de\u590d");
+      const reader = response.body?.getReader();
+
+      if (!reader) {
+        updateAssistant(assistantMessage.id, "AI\u6ca1\u6709\u8fd4\u56de\u53ef\u8bfb\u53d6\u7684\u56de\u590d\u3002");
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let received = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) {
+          break;
+        }
+
+        const chunk = decoder.decode(value, { stream: true });
+        received += chunk;
+        appendAssistantChunk(assistantMessage.id, chunk);
+      }
+
+      const rest = decoder.decode();
+
+      if (rest) {
+        received += rest;
+        appendAssistantChunk(assistantMessage.id, rest);
+      }
+
+      if (!received.trim()) {
+        updateAssistant(assistantMessage.id, "AI\u6ca1\u6709\u56de\u590d");
+      }
     } catch (error) {
       console.error(error);
-      appendAssistant("\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002");
+      updateAssistant(
+        assistantMessage.id,
+        "\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002"
+      );
     } finally {
       setLoading(false);
+      setStreamingMessageId(null);
     }
   }
 
@@ -148,7 +207,7 @@ export default function ChatPage() {
 
   return (
     <main className="section">
-      <div className="container" style={{ maxWidth: 960 }}>
+      <div className="container chat-page-container">
         <div className="panel chat-surface">
           <div className="chat-toolbar">
             <div>
@@ -156,23 +215,24 @@ export default function ChatPage() {
               <p>{"\u8fd9\u662f\u4f60\u7684\u7f51\u7ad9\u63a5\u5165\u7684\u7b2c\u4e00\u4e2a AI\u3002"}</p>
             </div>
 
-            <button className="btn" type="button" onClick={clearHistory}>
-              {"\u6e05\u7a7a"}
-            </button>
-          </div>
+            <div className="chat-controls">
+              <select
+                className="input ai-model-select"
+                value={model}
+                onChange={(event) => setModel(event.target.value)}
+              >
+                {AI_MODEL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
 
-          <select
-            className="input ai-model-select"
-            value={model}
-            onChange={(event) => setModel(event.target.value)}
-            style={{ marginTop: 16 }}
-          >
-            {AI_MODEL_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+              <button className="btn" type="button" onClick={clearHistory}>
+                {"\u6e05\u7a7a"}
+              </button>
+            </div>
+          </div>
 
           <div className="chat-thread" aria-live="polite">
             {messages.map((item) => (
@@ -182,25 +242,20 @@ export default function ChatPage() {
                     <span>{item.role === "user" ? "\u4f60" : "PromptBay AI"}</span>
                     {item.createdAt && <span>{item.createdAt}</span>}
                   </div>
-                  <div>{item.content}</div>
+                  <div>
+                    {item.content || item.id === streamingMessageId ? (
+                      item.content || (
+                        <span className="chat-typing">
+                          <span />
+                          <span />
+                          <span />
+                        </span>
+                      )
+                    ) : null}
+                  </div>
                 </div>
               </div>
             ))}
-
-            {loading && (
-              <div className="chat-row assistant">
-                <div className="chat-bubble">
-                  <div className="chat-meta">
-                    <span>PromptBay AI</span>
-                  </div>
-                  <span className="chat-typing">
-                    <span />
-                    <span />
-                    <span />
-                  </span>
-                </div>
-              </div>
-            )}
 
             <div ref={messagesEndRef} />
           </div>
