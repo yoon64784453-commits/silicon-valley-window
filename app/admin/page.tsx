@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 
 type PendingOrder = {
   id: string;
+  order_no?: string | null;
   created_at: string;
   status: string | null;
   user_id: string;
@@ -221,6 +222,11 @@ export default function AdminPage() {
                 <span className="tag">
                   待付款确认
                 </span>
+
+                <p style={{ marginBottom: 8 }}>
+                  订单号：
+                  {order.order_no || order.id.slice(0, 8)}
+                </p>
 
                 <h3>
                   {order.products?.title}

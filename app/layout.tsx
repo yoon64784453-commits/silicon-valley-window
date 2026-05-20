@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Sidebar } from "@/components/Sidebar";
+import { MobileNav } from "@/components/MobileNav";
 import FloatingAI from "./components/FloatingAI";
 
 export const metadata: Metadata = {
@@ -21,6 +22,7 @@ export default function RootLayout({
           <main className="main-content">{children}</main>
         </div>
         <FloatingAI />
+        <MobileNav />
       </body>
       
     </html>

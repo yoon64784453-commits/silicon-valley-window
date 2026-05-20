@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { createPayfmOrder } from "@/lib/payfm";
 import { createSupabaseForToken } from "@/lib/supabase-server";
 
 type PayRequestBody = {
   productId?: unknown;
   payType?: unknown;
+};
+
+type ExistingOrder = {
+  id: string;
+  order_no?: string | null;
+  status: string | null;
 };
 
 function signParams(params: Record<string, string>, key: string) {
@@ -25,6 +32,92 @@ function getBearerToken(request: NextRequest) {
   return match?.[1] || null;
 }
 
+function isMissingOrderNumberColumn(error: { code?: string; message?: string } | null) {
+  return error?.code === "42703" || error?.message?.includes("order_no") || false;
+}
+
+async function readExistingOrder(
+  supabase: ReturnType<typeof createSupabaseForToken>,
+  userId: string,
+  productId: string
+) {
+  const withOrderNumber = await supabase
+    .from("orders")
+    .select("id,order_no,status")
+    .eq("user_id", userId)
+    .eq("product_id", productId)
+    .in("status", ["pending", "paid"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!isMissingOrderNumberColumn(withOrderNumber.error)) {
+    return {
+      data: withOrderNumber.data as ExistingOrder | null,
+      error: withOrderNumber.error,
+      supportsOrderNumber: true,
+    };
+  }
+
+  const fallback = await supabase
+    .from("orders")
+    .select("id,status")
+    .eq("user_id", userId)
+    .eq("product_id", productId)
+    .in("status", ["pending", "paid"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return {
+    data: fallback.data as ExistingOrder | null,
+    error: fallback.error,
+    supportsOrderNumber: false,
+  };
+}
+
+async function createPendingOrder(
+  supabase: ReturnType<typeof createSupabaseForToken>,
+  userId: string,
+  productId: string,
+  supportsOrderNumber: boolean
+) {
+  const selectColumns = supportsOrderNumber ? "id,order_no" : "id";
+  const created = await supabase
+    .from("orders")
+    .insert({
+      user_id: userId,
+      product_id: productId,
+      status: "pending",
+    })
+    .select(selectColumns)
+    .single();
+
+  if (!isMissingOrderNumberColumn(created.error)) {
+    return {
+      data: created.data as ExistingOrder | null,
+      error: created.error,
+      supportsOrderNumber,
+    };
+  }
+
+  const fallback = await supabase
+    .from("orders")
+    .insert({
+      user_id: userId,
+      product_id: productId,
+      status: "pending",
+    })
+    .select("id")
+    .single();
+
+  return {
+    data: fallback.data as ExistingOrder | null,
+    error: fallback.error,
+    supportsOrderNumber: false,
+  };
+}
+
 export async function POST(request: NextRequest) {
   let body: PayRequestBody;
 
@@ -42,10 +135,10 @@ export async function POST(request: NextRequest) {
 
   const pid = process.env.PAYFM_PID;
   const key = process.env.PAYFM_KEY;
-  const gateway = process.env.PAYFM_GATEWAY;
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  const gateway = process.env.PAYFM_GATEWAY;
 
-  if (!pid || !key || !gateway || !siteUrl) {
+  if (!pid || !key || !siteUrl || (!gateway && !process.env.PAYFM_API_BASE)) {
     return NextResponse.json(
       { error: "Payment environment variables are incomplete." },
       { status: 500 }
@@ -88,15 +181,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Product not found." }, { status: 404 });
   }
 
-  const { data: existingOrder, error: existingOrderError } = await supabase
-    .from("orders")
-    .select("id,status")
-    .eq("user_id", userData.user.id)
-    .eq("product_id", productId)
-    .in("status", ["pending", "paid"])
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const {
+    data: existingOrder,
+    error: existingOrderError,
+    supportsOrderNumber,
+  } = await readExistingOrder(supabase, userData.user.id, productId);
 
   if (existingOrderError) {
     console.error("Failed to read existing order", existingOrderError);
@@ -111,17 +200,15 @@ export async function POST(request: NextRequest) {
   }
 
   let orderId = existingOrder?.id;
+  let orderNo = existingOrder?.order_no || null;
 
   if (!orderId) {
-    const { data: newOrder, error: orderError } = await supabase
-      .from("orders")
-      .insert({
-        user_id: userData.user.id,
-        product_id: productId,
-        status: "pending",
-      })
-      .select("id")
-      .single();
+    const { data: newOrder, error: orderError } = await createPendingOrder(
+      supabase,
+      userData.user.id,
+      productId,
+      supportsOrderNumber
+    );
 
     if (orderError || !newOrder) {
       console.error("Failed to create order", orderError);
@@ -129,16 +216,50 @@ export async function POST(request: NextRequest) {
     }
 
     orderId = newOrder.id;
+    orderNo = newOrder.order_no || null;
+  }
+
+  const paymentOrderNo = orderNo || orderId;
+  const amount = Number(product.price).toFixed(2);
+  const payMethod = body.payType === "wechat" ? "wechat" : "alipay";
+
+  try {
+    const payfmOrder = await createPayfmOrder({
+      orderNo: paymentOrderNo,
+      amount,
+      payMethod,
+      subject: product.title,
+    });
+
+    return NextResponse.json({
+      orderId,
+      orderNo: paymentOrderNo,
+      payUrl: payfmOrder.payUrl,
+      tradeNo: payfmOrder.platformOrderId,
+      provider: "payfm",
+    });
+  } catch (error) {
+    console.error("PayFM normal order creation failed", {
+      orderNo: paymentOrderNo,
+      error,
+    });
+  }
+
+  if (!gateway) {
+    return NextResponse.json(
+      { error: "支付订单创建失败，请检查支付FM接口配置。" },
+      { status: 502 }
+    );
   }
 
   const params: Record<string, string> = {
     pid,
-    type: body.payType === "wechat" ? "wechat" : "alipay",
-    out_trade_no: orderId,
+    type: payMethod,
+    out_trade_no: paymentOrderNo,
     notify_url: `${siteUrl}/api/pay/notify`,
     return_url: `${siteUrl}/dashboard`,
     name: product.title,
-    money: Number(product.price).toFixed(2),
+    money: amount,
     sitename: "PromptBay",
     sign_type: "MD5",
   };
@@ -184,6 +305,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     orderId,
+    orderNo: paymentOrderNo,
     payUrl: data.payurl,
     tradeNo: data.trade_no,
   });

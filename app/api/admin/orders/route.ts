@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 
+function isMissingOrderNumberColumn(error: { code?: string; message?: string }) {
+  return error.code === "42703" || error.message?.includes("order_no");
+}
+
 export async function GET(request: NextRequest) {
   const { context, response } = await requireAdmin(request);
 
@@ -8,11 +12,12 @@ export async function GET(request: NextRequest) {
     return response;
   }
 
-  const { data, error } = await context.supabase
+  const withOrderNumber = await context.supabase
     .from("orders")
     .select(
       `
       id,
+      order_no,
       created_at,
       status,
       user_id,
@@ -26,6 +31,33 @@ export async function GET(request: NextRequest) {
     .order("created_at", {
       ascending: false,
     });
+
+  let data: unknown = withOrderNumber.data;
+  let error = withOrderNumber.error;
+
+  if (error && isMissingOrderNumberColumn(error)) {
+    const fallback = await context.supabase
+      .from("orders")
+      .select(
+        `
+        id,
+        created_at,
+        status,
+        user_id,
+        products (
+          title,
+          price
+        )
+      `
+      )
+      .eq("status", "pending")
+      .order("created_at", {
+        ascending: false,
+      });
+
+    data = fallback.data as unknown;
+    error = fallback.error;
+  }
 
   if (error) {
     return NextResponse.json(

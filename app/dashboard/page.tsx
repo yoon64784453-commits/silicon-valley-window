@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { ChevronDown, Copy, RefreshCw, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 type Order = {
   id: string;
+  order_no?: string | null;
   created_at: string;
   status: string | null;
   products: {
@@ -20,25 +22,100 @@ type Order = {
   } | null;
 };
 
+function isMissingOrderNumberColumn(error: { code?: string; message?: string }) {
+  return error.code === "42703" || error.message?.includes("order_no");
+}
+
+function getDateParts(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
+
+  return {
+    year: get("year"),
+    month: get("month"),
+    day: get("day"),
+    hour: get("hour"),
+    minute: get("minute"),
+  };
+}
+
+function getDisplayOrderNo(order: Order) {
+  if (order.order_no) return order.order_no;
+
+  const parts = getDateParts(order.created_at);
+
+  if (!parts) return order.id.slice(0, 8);
+
+  const suffix = order.id.replace(/\D/g, "").slice(-3).padStart(3, "0");
+
+  return `${parts.year}${parts.month}${parts.day}${parts.hour}${parts.minute}${suffix}`;
+}
+
+function formatOrderTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "时间未知";
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}
+
 export default function DashboardPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [message, setMessage] = useState("正在读取订单...");
   const [loading, setLoading] = useState(false);
+  const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
 
-  async function loadOrders() {
+  const syncPendingOrders = useCallback(async (accessToken: string) => {
+    const response = await fetch("/api/pay/sync", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({}),
+    });
+
+    if (!response.ok) return null;
+
+    return response.json() as Promise<{ updated?: number }>;
+  }, []);
+
+  const loadOrders = useCallback(async (syncPending = true) => {
     setLoading(true);
 
     const { data: userData } = await supabase.auth.getUser();
+    const { data: sessionData } = await supabase.auth.getSession();
 
     if (!userData.user) {
       window.location.href = "/login";
       return;
     }
 
-    const { data, error } = await supabase
+    const withOrderNumber = await supabase
       .from("orders")
       .select(`
         id,
+        order_no,
         created_at,
         status,
         products (
@@ -55,15 +132,68 @@ export default function DashboardPage() {
       .eq("user_id", userData.user.id)
       .order("created_at", { ascending: false });
 
+    let data: unknown = withOrderNumber.data;
+    let error = withOrderNumber.error;
+
+    if (error && isMissingOrderNumberColumn(error)) {
+      const fallback = await supabase
+        .from("orders")
+        .select(`
+          id,
+          created_at,
+          status,
+          products (
+            id,
+            title,
+            subtitle,
+            price,
+            image_url,
+            emoji,
+            download_name,
+            delivery_content
+          )
+        `)
+        .eq("user_id", userData.user.id)
+        .order("created_at", { ascending: false });
+
+      data = fallback.data as unknown;
+      error = fallback.error;
+    }
+
     if (error) {
       setMessage("读取订单失败：" + error.message);
       setLoading(false);
       return;
     }
 
-    setOrders((data as unknown as Order[]) || []);
+    const nextOrders = (data as unknown as Order[]) || [];
+    const hasPendingOrders = nextOrders.some((order) => order.status === "pending");
+    const accessToken = sessionData.session?.access_token;
+
+    if (syncPending && hasPendingOrders && accessToken) {
+      const syncResult = await syncPendingOrders(accessToken);
+
+      if ((syncResult?.updated || 0) > 0) {
+        await loadOrders(false);
+        return;
+      }
+    }
+
+    setOrders(nextOrders);
     setMessage("");
     setLoading(false);
+  }, [syncPendingOrders]);
+
+  function toggleOrder(orderId: string) {
+    setExpandedOrders((prev) => ({
+      ...prev,
+      [orderId]: !prev[orderId],
+    }));
+  }
+
+  async function copyDeliveryContent(content: string | null) {
+    await navigator.clipboard.writeText(content || "");
+    alert("已复制交付内容");
   }
 
   async function deleteOrder(orderId: string, status: string | null) {
@@ -88,11 +218,11 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadOrders();
-  }, []);
+  }, [loadOrders]);
 
   return (
     <main className="section">
-      <div className="container">
+      <div className="container orders-container">
         <div
           style={{
             display: "flex",
@@ -107,7 +237,8 @@ export default function DashboardPage() {
             <p>付款确认后，商品交付内容会自动在这里解锁。</p>
           </div>
 
-          <button className="btn" onClick={loadOrders} disabled={loading}>
+          <button className="btn" onClick={() => loadOrders()} disabled={loading}>
+            <RefreshCw size={16} />
             {loading ? "刷新中..." : "刷新订单"}
           </button>
         </div>
@@ -116,108 +247,110 @@ export default function DashboardPage() {
 
         {!message && orders.length === 0 && <p>你还没有购买任何商品。</p>}
 
-        <div className="grid" style={{ marginTop: 24 }}>
+        <div className="orders-list">
           {orders.map((order) => {
             const item = order.products;
 
             if (!item) return null;
 
             const isPaid = order.status === "paid";
+            const isExpanded = Boolean(expandedOrders[order.id]);
+            const orderNo = getDisplayOrderNo(order);
 
             return (
-              <div className="card" key={order.id}>
-                <div className="cover">
-                  {item.image_url ? (
-                    <img className="product-image" src={item.image_url} alt={item.title} />
-                  ) : (
-                    item.emoji || "📦"
-                  )}
-                </div>
-
-                <span
-                  className="tag"
-                  style={{
-                    background: isPaid
-                      ? "rgba(32,255,200,.12)"
-                      : "rgba(255,255,255,.08)",
-                    color: isPaid ? "#20ffc8" : "#b8c8c3",
-                  }}
+              <article className="card order-card" key={order.id}>
+                <button
+                  className="order-summary-button"
+                  type="button"
+                  onClick={() => toggleOrder(order.id)}
+                  aria-expanded={isExpanded}
                 >
-                  {isPaid ? "交付已解锁" : "待付款确认"}
-                </span>
+                  <div className="order-summary-main">
+                    <span className="order-no">#{orderNo}</span>
+                    <strong>{item.title}</strong>
+                    <span>{item.subtitle || "数字商品交付"}</span>
+                  </div>
 
-                <h3>{item.title}</h3>
-                <p>{item.subtitle}</p>
-
-                <div className="price">¥{item.price}</div>
-
-                <div style={{ marginTop: 14 }}>
-                  {isPaid ? (
-                    <div
+                  <div className="order-summary-meta">
+                    <span
+                      className="tag"
                       style={{
-                        padding: 16,
-                        borderRadius: 22,
-                        background:
-                          "linear-gradient(135deg, rgba(32,255,200,.1), rgba(25,184,255,.06))",
-                        border: "1px solid rgba(32,255,200,.18)",
+                        background: isPaid
+                          ? "rgba(32,255,200,.12)"
+                          : "rgba(255,255,255,.08)",
+                        color: isPaid ? "#20ffc8" : "#b8c8c3",
                       }}
                     >
-                      <strong>交付内容</strong>
+                      {isPaid ? "交付已解锁" : "待付款确认"}
+                    </span>
+                    <span>{formatOrderTime(order.created_at)}</span>
+                  </div>
 
-                      <p
-                        style={{
-                          wordBreak: "break-all",
-                          whiteSpace: "pre-wrap",
-                          marginTop: 10,
-                        }}
-                      >
-                        {item.delivery_content || "暂无交付内容"}
-                      </p>
+                  <div className="order-summary-price">¥{item.price}</div>
 
-                      {item.download_name && (
-                        <p style={{ marginTop: 10 }}>
-                          文件名称：{item.download_name}
-                        </p>
+                  <ChevronDown
+                    className={isExpanded ? "order-chevron open" : "order-chevron"}
+                    size={20}
+                  />
+                </button>
+
+                {isExpanded && (
+                  <div className="order-expanded">
+                    <div className="order-expanded-cover">
+                      {item.image_url ? (
+                        <img className="product-image" src={item.image_url} alt={item.title} />
+                      ) : (
+                        item.emoji || "📦"
+                      )}
+                    </div>
+
+                    <div className="order-expanded-body">
+                      {isPaid ? (
+                        <div className="order-delivery-box">
+                          <strong>交付内容</strong>
+
+                          <p>
+                            {item.delivery_content || "暂无交付内容"}
+                          </p>
+
+                          {item.download_name && (
+                            <p>
+                              文件名称：{item.download_name}
+                            </p>
+                          )}
+
+                          <button
+                            className="btn primary"
+                            type="button"
+                            onClick={() => copyDeliveryContent(item.delivery_content)}
+                          >
+                            <Copy size={16} />
+                            一键复制交付内容
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="order-waiting-box">
+                          <strong>等待确认</strong>
+                          <p>
+                            付款后请等待系统或管理员确认。确认完成后，这里会自动显示交付内容。
+                          </p>
+                        </div>
                       )}
 
-                      <button
-                        className="btn primary"
-                        style={{ width: "100%", marginTop: 12 }}
-                        onClick={() => {
-                          navigator.clipboard.writeText(item.delivery_content || "");
-                          alert("已复制交付内容");
-                        }}
-                      >
-                        一键复制交付内容
-                      </button>
+                      {!isPaid && (
+                        <button
+                          className="btn order-delete-button"
+                          type="button"
+                          onClick={() => deleteOrder(order.id, order.status)}
+                        >
+                          <Trash2 size={16} />
+                          删除未完成订单
+                        </button>
+                      )}
                     </div>
-                  ) : (
-                    <div
-                      style={{
-                        padding: 16,
-                        borderRadius: 22,
-                        background: "rgba(255,255,255,.04)",
-                        border: "1px solid rgba(255,255,255,.08)",
-                      }}
-                    >
-                      <strong>等待确认</strong>
-                      <p style={{ marginBottom: 0 }}>
-                        付款后请等待管理员确认。确认完成后，这里会自动显示交付内容。
-                      </p>
-                    </div>
-                  )}
-
-                  {!isPaid && (
-                    <button
-                      className="btn"
-                      style={{ width: "100%", marginTop: 10 }}
-                      onClick={() => deleteOrder(order.id, order.status)}
-                    >
-                      删除未完成订单
-                    </button>
-                  )}
-                </div>
-              </div>
+                  </div>
+                )}
+              </article>
             );
           })}
         </div>

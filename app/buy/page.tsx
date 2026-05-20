@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -41,50 +41,16 @@ function PayMethodTabs({
   );
 }
 
-function PaymentQr({ payMethod }: { payMethod: PayMethod }) {
-  return (
-    <div
-      style={{
-        width: "100%",
-        maxWidth: 220,
-        margin: "0 auto",
-        padding: 14,
-        borderRadius: 26,
-        background: "rgba(255,255,255,.96)",
-        boxShadow: "0 18px 60px rgba(0,0,0,.28)",
-      }}
-    >
-      <img
-        src={payMethod === "wechat" ? "/wechat-pay.png" : "/alipay-pay.png"}
-        alt={payMethod === "wechat" ? "微信支付二维码" : "支付宝二维码"}
-        style={{
-          width: "100%",
-          aspectRatio: "1 / 1",
-          objectFit: "cover",
-          borderRadius: 18,
-          display: "block",
-        }}
-      />
-    </div>
-  );
-}
-
 function BuyContent() {
   const searchParams = useSearchParams();
 
-  const [message, setMessage] = useState("正在创建订单...");
+  const [message, setMessage] = useState("正在读取商品信息...");
   const [created, setCreated] = useState(false);
-  const [showQr, setShowQr] = useState(false);
   const [payMethod, setPayMethod] = useState<PayMethod>("wechat");
   const [product, setProduct] = useState<Product | null>(null);
 
-  const hasCreatedOrder = useRef(false);
-
   useEffect(() => {
-    async function createOrder() {
-      if (hasCreatedOrder.current) return;
-      hasCreatedOrder.current = true;
-
+    async function loadCheckout() {
       const productId = searchParams.get("product_id");
 
       if (!productId) {
@@ -116,7 +82,7 @@ function BuyContent() {
 
         const { data: existingOrder } = await supabase
           .from("orders")
-          .select("id,status")
+          .select("id,status,order_no")
           .eq("user_id", user.id)
           .eq("product_id", productId)
           .in("status", ["pending", "paid"])
@@ -132,30 +98,18 @@ function BuyContent() {
 
         if (existingOrder?.status === "pending") {
           setCreated(true);
-          setMessage("订单已存在，请完成支付后等待确认。");
+          setMessage("订单已存在。点击下方按钮继续进入支付FM收银台，付款后会自动核验。");
           return;
         }
 
-        const { error } = await supabase.from("orders").insert({
-          user_id: user.id,
-          product_id: productId,
-          status: "pending",
-        });
-
-        if (error) {
-          setMessage("创建订单失败：" + error.message);
-          return;
-        }
-
-        setCreated(true);
-        setMessage("订单已创建，请完成支付。");
+        setMessage("选择支付方式后，系统会生成支付FM动态订单。");
       } catch (err) {
         console.error(err);
         setMessage("发生未知错误，请稍后重试。");
       }
     }
 
-    createOrder();
+    loadCheckout();
   }, [searchParams]);
   async function startPay() {
   setMessage("正在创建支付订单...");
@@ -243,38 +197,19 @@ const payMethodText = payMethod === "wechat" ? "微信支付" : "支付宝";
 
               <div style={{ display: "grid", gap: 14, marginTop: 20 }}>
                 <div
-                  onClick={() => setShowQr(!showQr)}
                   style={{
                     padding: 18,
                     borderRadius: 22,
                     border: "1px solid rgba(126,255,224,.18)",
                     background: "rgba(255,255,255,.045)",
-                    cursor: "pointer",
                   }}
                 >
-                  <strong>微信 / 支付宝扫码</strong>
-                  <p style={{ marginBottom: 0 }}>
-                    桌面端请查看右侧二维码；手机端点击此处展开付款二维码。
-                  </p>
+                  <PayMethodTabs payMethod={payMethod} setPayMethod={setPayMethod} />
 
-                  {showQr && (
-                    <div
-                      className="mobile-payment-qr"
-                      style={{
-                        marginTop: 18,
-                        padding: 18,
-                        borderRadius: 24,
-                        background: "rgba(255,255,255,.06)",
-                        border: "1px solid rgba(255,255,255,.08)",
-                      }}
-                    >
-                      <PayMethodTabs payMethod={payMethod} setPayMethod={setPayMethod} />
-                      <PaymentQr payMethod={payMethod} />
-                      <p style={{ textAlign: "center", marginBottom: 0 }}>
-                        请使用{payMethodText}扫码支付
-                      </p>
-                    </div>
-                  )}
+                  <strong>支付FM动态收银台</strong>
+                  <p style={{ marginBottom: 0 }}>
+                    系统会为当前订单生成专属支付链接。付款成功后，支付FM通知和订单页主动查单都会尝试自动解锁交付内容。
+                  </p>
                 </div>
 
                 <div
@@ -305,14 +240,14 @@ const payMethodText = payMethod === "wechat" ? "微信支付" : "支付宝";
                 <strong>订单状态</strong>
                 <p style={{ marginBottom: 0 }}>
                   {created
-                    ? "订单已生成。付款后由管理员确认，确认完成后交付内容会自动在下载中心解锁。"
-                    : "正在创建订单，请稍候。"}
+                    ? "订单已生成。付款后系统会自动接收支付通知；如果通知延迟，刷新下载中心也会主动核验支付状态。"
+                    : "点击资源解锁后会创建支付订单并跳转支付FM收银台。"}
                 </p>
               </div>
 
               <div style={{ display: "flex", gap: 12, marginTop: 28, flexWrap: "wrap" }}>
                 <button className="btn primary" onClick={startPay}>
-                  资源解锁
+                  前往支付FM收银台
                 </button>
 
                 <Link className="btn" href="/products">
@@ -338,9 +273,10 @@ const payMethodText = payMethod === "wechat" ? "微信支付" : "支付宝";
                   border: "1px solid rgba(255,255,255,.08)",
                 }}
               >
-                <PayMethodTabs payMethod={payMethod} setPayMethod={setPayMethod} />
-                <PaymentQr payMethod={payMethod} />
-                <p style={{ textAlign: "center", marginBottom: 0 }}>{payMethodText}二维码</p>
+                <strong>自动交付模式</strong>
+                <p style={{ marginBottom: 0 }}>
+                  不再依赖静态收款码。每次付款都会绑定专属订单号，方便系统识别付款并自动交付。
+                </p>
               </div>
 
               <div
@@ -367,9 +303,9 @@ const payMethodText = payMethod === "wechat" ? "微信支付" : "支付宝";
                   border: "1px solid rgba(255,255,255,.06)",
                 }}
               >
-                <strong>付款后请等待确认</strong>
+                <strong>付款后自动核验</strong>
                 <p style={{ marginBottom: 0 }}>
-                  当前为人工确认模式。确认付款后，系统会自动解锁交付内容。
+                  支付通知成功时会立即解锁；如果网络导致通知没到，用户刷新下载中心也会触发主动查单。
                 </p>
               </div>
             </div>

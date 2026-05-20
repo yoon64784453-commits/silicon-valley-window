@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { verifyPayfmNotify } from "@/lib/payfm";
 import { createSupabaseAdmin } from "@/lib/supabase-admin";
 
 type OrderWithProduct = {
   id: string;
+  order_no?: string | null;
   status: string | null;
   products:
     | {
@@ -34,6 +36,76 @@ function toCents(value: string | number) {
   return Math.round(numberValue * 100);
 }
 
+function isMissingOrderNumberColumn(error: { code?: string; message?: string } | null) {
+  return error?.code === "42703" || error?.message?.includes("order_no") || false;
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+async function findOrderByPaymentReference(
+  supabase: ReturnType<typeof createSupabaseAdmin>,
+  paymentReference: string
+) {
+  const selectWithOrderNo = `
+    id,
+    order_no,
+    status,
+    products (
+      price
+    )
+  `;
+
+  const byOrderNo = await supabase
+    .from("orders")
+    .select(selectWithOrderNo)
+    .eq("order_no", paymentReference)
+    .maybeSingle();
+
+  if (byOrderNo.data || (!byOrderNo.error && !isMissingOrderNumberColumn(byOrderNo.error))) {
+    return {
+      data: byOrderNo.data as OrderWithProduct | null,
+      error: byOrderNo.error,
+    };
+  }
+
+  if (!isMissingOrderNumberColumn(byOrderNo.error) && !isUuid(paymentReference)) {
+    return {
+      data: null,
+      error: byOrderNo.error,
+    };
+  }
+
+  if (!isUuid(paymentReference)) {
+    return {
+      data: null,
+      error: byOrderNo.error,
+    };
+  }
+
+  const selectFallback = isMissingOrderNumberColumn(byOrderNo.error)
+    ? `
+      id,
+      status,
+      products (
+        price
+      )
+    `
+    : selectWithOrderNo;
+
+  const byId = await supabase
+    .from("orders")
+    .select(selectFallback)
+    .eq("id", paymentReference)
+    .maybeSingle();
+
+  return {
+    data: byId.data as OrderWithProduct | null,
+    error: byId.error,
+  };
+}
+
 async function handlePaymentNotify(params: Record<string, string>) {
   const key = process.env.PAYFM_KEY;
   const pid = process.env.PAYFM_PID;
@@ -43,32 +115,63 @@ async function handlePaymentNotify(params: Record<string, string>) {
     return new NextResponse("fail");
   }
 
-  const incomingSign = params.sign;
-  const calculatedSign = signParams(params, key);
+  const isNativePayfmNotify = Boolean(
+    params.merchantNum || params.orderNo || params.state
+  );
+  let paymentReference = "";
+  let paidMoneyCents = NaN;
 
-  if (params.pid !== pid || !incomingSign || incomingSign !== calculatedSign) {
-    console.error("Payment notify failed: invalid signature.", {
-      pid: params.pid,
-      hasSign: Boolean(incomingSign),
-    });
+  if (isNativePayfmNotify) {
+    let verified;
 
-    return new NextResponse("fail");
+    try {
+      verified = verifyPayfmNotify(params);
+    } catch (error) {
+      console.error("Payment notify failed: PayFM config invalid.", error);
+      return new NextResponse("fail");
+    }
+
+    if (!verified.ok) {
+      console.error("Payment notify failed: invalid PayFM native notify.", {
+        merchantNum: params.merchantNum,
+        orderNo: params.orderNo,
+        state: params.state,
+        hasSign: Boolean(params.sign),
+      });
+
+      return new NextResponse("fail");
+    }
+
+    paymentReference = verified.orderNo;
+    paidMoneyCents = toCents(verified.amount);
+  } else {
+    const incomingSign = params.sign;
+    const calculatedSign = signParams(params, key);
+
+    if (params.pid !== pid || !incomingSign || incomingSign !== calculatedSign) {
+      console.error("Payment notify failed: invalid signature.", {
+        pid: params.pid,
+        hasSign: Boolean(incomingSign),
+      });
+
+      return new NextResponse("fail");
+    }
+
+    if (params.trade_status !== "TRADE_SUCCESS") {
+      console.error("Payment notify ignored: trade not successful.", {
+        trade_status: params.trade_status,
+      });
+
+      return new NextResponse("fail");
+    }
+
+    paymentReference = params.out_trade_no;
+    paidMoneyCents = toCents(params.money);
   }
 
-  if (params.trade_status !== "TRADE_SUCCESS") {
-    console.error("Payment notify ignored: trade not successful.", {
-      trade_status: params.trade_status,
-    });
-
-    return new NextResponse("fail");
-  }
-
-  const orderId = params.out_trade_no;
-  const paidMoneyCents = toCents(params.money);
-
-  if (!orderId || Number.isNaN(paidMoneyCents)) {
+  if (!paymentReference || Number.isNaN(paidMoneyCents)) {
     console.error("Payment notify failed: invalid order or amount.", {
-      orderId,
+      paymentReference,
       money: params.money,
     });
 
@@ -84,23 +187,14 @@ async function handlePaymentNotify(params: Record<string, string>) {
     return new NextResponse("fail");
   }
 
-  const { data: order, error: orderError } = await supabase
-    .from("orders")
-    .select(
-      `
-      id,
-      status,
-      products (
-        price
-      )
-    `
-    )
-    .eq("id", orderId)
-    .single();
+  const { data: order, error: orderError } = await findOrderByPaymentReference(
+    supabase,
+    paymentReference
+  );
 
   if (orderError || !order) {
     console.error("Payment notify failed: order not found.", {
-      orderId,
+      paymentReference,
       error: orderError,
     });
 
@@ -112,6 +206,7 @@ async function handlePaymentNotify(params: Record<string, string>) {
   }
 
   const typedOrder = order as unknown as OrderWithProduct;
+  const orderId = typedOrder.id;
   const product = Array.isArray(typedOrder.products)
     ? typedOrder.products[0]
     : typedOrder.products;
