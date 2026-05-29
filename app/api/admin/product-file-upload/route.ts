@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
+import { createSupabaseAdmin } from "@/lib/supabase-admin";
 
 type UploadRequest = {
   fileName?: unknown;
@@ -24,7 +25,7 @@ function getResumableEndpoint() {
 }
 
 export async function POST(request: NextRequest) {
-  const { context, response } = await requireAdmin(request);
+  const { response } = await requireAdmin(request);
 
   if (response) {
     return response;
@@ -42,24 +43,25 @@ export async function POST(request: NextRequest) {
   const contentType = typeof body.contentType === "string" ? body.contentType : "application/zip";
 
   if (!originalName || !isZipName(originalName)) {
-    return NextResponse.json({ error: "请上传 ZIP 格式的商品文件。" }, { status: 400 });
+    return NextResponse.json({ error: "Please upload a ZIP file." }, { status: 400 });
   }
 
+  const supabaseAdmin = createSupabaseAdmin();
   const path = `${Date.now()}-${crypto.randomUUID()}.zip`;
-  const { data, error } = await context.supabase.storage
+  const { data, error } = await supabaseAdmin.storage
     .from("product-files")
     .createSignedUploadUrl(path);
 
   if (error || !data) {
     return NextResponse.json(
-      { error: "创建上传链接失败：" + (error?.message || "unknown error") },
+      { error: "Failed to create upload URL: " + (error?.message || "unknown error") },
       { status: 500 }
     );
   }
 
   const {
     data: { publicUrl },
-  } = context.supabase.storage.from("product-files").getPublicUrl(path);
+  } = supabaseAdmin.storage.from("product-files").getPublicUrl(path);
 
   return NextResponse.json({
     bucketName: "product-files",

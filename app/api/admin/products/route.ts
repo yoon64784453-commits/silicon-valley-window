@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
+import { createSupabaseAdmin } from "@/lib/supabase-admin";
 
 function readText(form: FormData, key: string, fallback = "") {
   const value = form.get(key);
@@ -36,6 +37,7 @@ export async function POST(request: NextRequest) {
   }
 
   const form = await request.formData();
+  const supabaseAdmin = createSupabaseAdmin();
   const title = readText(form, "title");
   const price = Number(readText(form, "price", "0"));
 
@@ -54,7 +56,7 @@ export async function POST(request: NextRequest) {
     const extension = getSafeExtension(imageFile.name, "png");
     const fileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
 
-    const { error: uploadError } = await context.supabase.storage
+    const { error: uploadError } = await supabaseAdmin.storage
       .from("product-images")
       .upload(fileName, imageFile, {
         contentType: imageFile.type || undefined,
@@ -69,7 +71,7 @@ export async function POST(request: NextRequest) {
 
     const {
       data: { publicUrl },
-    } = context.supabase.storage.from("product-images").getPublicUrl(fileName);
+    } = supabaseAdmin.storage.from("product-images").getPublicUrl(fileName);
 
     imageUrl = publicUrl;
   }
@@ -85,19 +87,19 @@ export async function POST(request: NextRequest) {
     downloadUrl = uploadedFileUrl;
     downloadName = downloadName || uploadedFileName;
     deliveryContent = deliveryContent
-      ? `${deliveryContent}\n\n下载链接：${downloadUrl}`
-      : `下载链接：${downloadUrl}`;
+      ? `${deliveryContent}\n\nDownload link: ${downloadUrl}`
+      : `Download link: ${downloadUrl}`;
   } else if (productFile instanceof File && productFile.size > 0) {
     if (!isZipFile(productFile)) {
       return NextResponse.json(
-        { error: "请上传 ZIP 格式的商品文件。" },
+        { error: "Please upload a ZIP file." },
         { status: 400 }
       );
     }
 
     const fileName = `${Date.now()}-${crypto.randomUUID()}.zip`;
 
-    const { error: uploadError } = await context.supabase.storage
+    const { error: uploadError } = await supabaseAdmin.storage
       .from("product-files")
       .upload(fileName, productFile, {
         contentType: productFile.type || "application/zip",
@@ -112,13 +114,13 @@ export async function POST(request: NextRequest) {
 
     const {
       data: { publicUrl },
-    } = context.supabase.storage.from("product-files").getPublicUrl(fileName);
+    } = supabaseAdmin.storage.from("product-files").getPublicUrl(fileName);
 
     downloadUrl = publicUrl;
     downloadName = downloadName || productFile.name;
     deliveryContent = deliveryContent
-      ? `${deliveryContent}\n\n下载链接：${downloadUrl}`
-      : `下载链接：${downloadUrl}`;
+      ? `${deliveryContent}\n\nDownload link: ${downloadUrl}`
+      : `Download link: ${downloadUrl}`;
   }
 
   const isFree = form.get("is_free") === "on";
