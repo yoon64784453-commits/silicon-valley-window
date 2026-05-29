@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import * as tus from "tus-js-client";
 
 type PendingOrder = {
   id: string;
@@ -28,6 +29,7 @@ export default function AdminPage() {
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   const [orders, setOrders] = useState<PendingOrder[]>([]);
 
@@ -138,12 +140,83 @@ export default function AdminPage() {
       return;
     }
 
+    const formData = new FormData(formElement);
+    const productFile = formData.get("product_file");
+
+    if (productFile instanceof File && productFile.size > 0) {
+      if (!productFile.name.toLowerCase().endsWith(".zip")) {
+        setMessage("请上传 ZIP 格式的商品文件。");
+        setLoading(false);
+        return;
+      }
+
+      setUploadProgress(0);
+      setMessage("正在上传 ZIP 文件...");
+
+      const uploadResponse = await fetch("/api/admin/product-file-upload", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          contentType: productFile.type || "application/zip",
+          fileName: productFile.name,
+        }),
+      });
+
+      const uploadConfig = await uploadResponse.json();
+
+      if (!uploadResponse.ok) {
+        setMessage(uploadConfig.error || "创建上传链接失败。");
+        setUploadProgress(null);
+        setLoading(false);
+        return;
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const upload = new tus.Upload(productFile, {
+          endpoint: uploadConfig.endpoint,
+          chunkSize: 6 * 1024 * 1024,
+          headers: {
+            "x-signature": uploadConfig.token,
+            "x-upsert": "false",
+          },
+          metadata: {
+            bucketName: uploadConfig.bucketName,
+            contentType: uploadConfig.contentType,
+            objectName: uploadConfig.objectName,
+          },
+          onError: reject,
+          onProgress: (bytesUploaded, bytesTotal) => {
+            setUploadProgress(Math.round((bytesUploaded / bytesTotal) * 100));
+          },
+          onSuccess: () => resolve(),
+          removeFingerprintOnSuccess: true,
+          retryDelays: [0, 1000, 3000, 5000],
+          uploadDataDuringCreation: true,
+        });
+
+        upload.findPreviousUploads().then((previousUploads) => {
+          if (previousUploads.length > 0) {
+            upload.resumeFromPreviousUpload(previousUploads[0]);
+          }
+
+          upload.start();
+        });
+      });
+
+      formData.delete("product_file");
+      formData.set("uploaded_file_name", productFile.name);
+      formData.set("uploaded_file_url", uploadConfig.publicUrl);
+    }
+
     const response = await fetch("/api/admin/products", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
       },
-      body: new FormData(formElement),
+      body: formData,
     });
 
     const result = await response.json();
@@ -160,6 +233,7 @@ export default function AdminPage() {
       formElement.reset();
     }
 
+    setUploadProgress(null);
     setLoading(false);
   }
 
@@ -380,6 +454,12 @@ export default function AdminPage() {
           {message && (
             <p style={{ marginTop: 16 }}>
               {message}
+            </p>
+          )}
+
+          {uploadProgress !== null && (
+            <p style={{ marginTop: 8 }}>
+              ZIP 上传进度：{uploadProgress}%
             </p>
           )}
         </div>

@@ -77,9 +77,17 @@ export async function POST(request: NextRequest) {
   let downloadUrl = "";
   let downloadName = readText(form, "download_name");
   let deliveryContent = readText(form, "delivery_content");
+  const uploadedFileUrl = readText(form, "uploaded_file_url");
+  const uploadedFileName = readText(form, "uploaded_file_name");
   const productFile = form.get("product_file");
 
-  if (productFile instanceof File && productFile.size > 0) {
+  if (uploadedFileUrl) {
+    downloadUrl = uploadedFileUrl;
+    downloadName = downloadName || uploadedFileName;
+    deliveryContent = deliveryContent
+      ? `${deliveryContent}\n\n下载链接：${downloadUrl}`
+      : `下载链接：${downloadUrl}`;
+  } else if (productFile instanceof File && productFile.size > 0) {
     if (!isZipFile(productFile)) {
       return NextResponse.json(
         { error: "请上传 ZIP 格式的商品文件。" },
