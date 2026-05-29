@@ -219,6 +219,27 @@ export async function POST(request: NextRequest) {
     orderNo = newOrder.order_no || null;
   }
 
+  if (Number(product.price) <= 0) {
+    const { error: paidError } = await supabase
+      .from("orders")
+      .update({
+        status: "paid",
+        paid_at: new Date().toISOString(),
+      })
+      .eq("id", orderId);
+
+    if (paidError) {
+      console.error("Failed to unlock free order", paidError);
+      return NextResponse.json({ error: "Failed to unlock free product." }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      paid: true,
+      orderId,
+      message: "Free product unlocked.",
+    });
+  }
+
   const paymentOrderNo = orderNo || orderId;
   const amount = Number(product.price).toFixed(2);
   const payMethod = body.payType === "wechat" ? "wechat" : "alipay";

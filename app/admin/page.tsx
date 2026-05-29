@@ -334,6 +334,27 @@ export default function AdminPage() {
 
             <input
               className="input"
+              name="product_file"
+              type="file"
+              accept=".zip,application/zip,application/x-zip-compressed"
+            />
+
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
+              <input
+                name="is_free"
+                type="checkbox"
+              />
+              免费下载
+            </label>
+
+            <input
+              className="input"
               name="download_name"
               placeholder="下载文件名"
             />

@@ -13,8 +13,13 @@ type Product = {
   category: string | null;
   description: string | null;
   download_name: string | null;
+  delivery_content: string | null;
   image_url: string | null;
 };
+
+function extractFirstUrl(value: string | null) {
+  return value?.match(/https?:\/\/\S+/)?.[0] || "";
+}
 
 export default async function ProductDetail({
   params,
@@ -24,7 +29,7 @@ export default async function ProductDetail({
   const { data: product, error } = await supabase
     .from("products")
     .select(
-      "id,title,subtitle,price,emoji,category,description,download_name,image_url"
+      "id,title,subtitle,price,emoji,category,description,download_name,delivery_content,image_url"
     )
     .eq("id", params.id)
     .single();
@@ -32,6 +37,10 @@ export default async function ProductDetail({
   if (error || !product) {
     notFound();
   }
+
+  const downloadUrl = Number(product.price) <= 0
+    ? extractFirstUrl(product.delivery_content)
+    : "";
 
   return (
     <main className="section">
@@ -67,7 +76,7 @@ export default async function ProductDetail({
 
           <p>{product.description || product.subtitle}</p>
 
-          <div className="price">¥{product.price}</div>
+          <div className="price">{Number(product.price) <= 0 ? "免费" : `¥${product.price}`}</div>
 
           <p style={{ marginTop: 12 }}>
             下载文件：{product.download_name || "购买后可见"}
@@ -81,9 +90,15 @@ export default async function ProductDetail({
               flexWrap: "wrap",
             }}
           >
-            <Link className="btn primary" href={`/buy?product_id=${product.id}`}>
-              创建订单
-            </Link>
+            {downloadUrl ? (
+              <a className="btn primary" href={downloadUrl}>
+                免费下载
+              </a>
+            ) : (
+              <Link className="btn primary" href={`/buy?product_id=${product.id}`}>
+                创建订单
+              </Link>
+            )}
 
             <Link className="btn" href="/products">
               返回商城

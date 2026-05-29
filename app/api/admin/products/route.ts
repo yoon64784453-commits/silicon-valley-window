@@ -7,6 +7,27 @@ function readText(form: FormData, key: string, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
 }
 
+function getSafeExtension(fileName: string, fallback: string) {
+  return (
+    fileName
+      .split(".")
+      .pop()
+      ?.replace(/[^a-z0-9]/gi, "")
+      .toLowerCase() || fallback
+  );
+}
+
+function isZipFile(file: File) {
+  const name = file.name.toLowerCase();
+  const type = file.type.toLowerCase();
+
+  return (
+    name.endsWith(".zip") ||
+    type === "application/zip" ||
+    type === "application/x-zip-compressed"
+  );
+}
+
 export async function POST(request: NextRequest) {
   const { context, response } = await requireAdmin(request);
 
@@ -30,13 +51,7 @@ export async function POST(request: NextRequest) {
   const imageFile = form.get("image");
 
   if (imageFile instanceof File && imageFile.size > 0) {
-    const extension =
-      imageFile.name
-        .split(".")
-        .pop()
-        ?.replace(/[^a-z0-9]/gi, "")
-        .toLowerCase() || "png";
-
+    const extension = getSafeExtension(imageFile.name, "png");
     const fileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
 
     const { error: uploadError } = await context.supabase.storage
@@ -59,15 +74,56 @@ export async function POST(request: NextRequest) {
     imageUrl = publicUrl;
   }
 
+  let downloadUrl = "";
+  let downloadName = readText(form, "download_name");
+  let deliveryContent = readText(form, "delivery_content");
+  const productFile = form.get("product_file");
+
+  if (productFile instanceof File && productFile.size > 0) {
+    if (!isZipFile(productFile)) {
+      return NextResponse.json(
+        { error: "请上传 ZIP 格式的商品文件。" },
+        { status: 400 }
+      );
+    }
+
+    const fileName = `${Date.now()}-${crypto.randomUUID()}.zip`;
+
+    const { error: uploadError } = await context.supabase.storage
+      .from("product-files")
+      .upload(fileName, productFile, {
+        contentType: productFile.type || "application/zip",
+      });
+
+    if (uploadError) {
+      return NextResponse.json(
+        { error: "商品文件上传失败：" + uploadError.message },
+        { status: 500 }
+      );
+    }
+
+    const {
+      data: { publicUrl },
+    } = context.supabase.storage.from("product-files").getPublicUrl(fileName);
+
+    downloadUrl = publicUrl;
+    downloadName = downloadName || productFile.name;
+    deliveryContent = deliveryContent
+      ? `${deliveryContent}\n\n下载链接：${downloadUrl}`
+      : `下载链接：${downloadUrl}`;
+  }
+
+  const isFree = form.get("is_free") === "on";
+
   const product = {
     title,
     subtitle: readText(form, "subtitle"),
-    price,
+    price: isFree ? 0 : price,
     emoji: readText(form, "emoji", "📦"),
     category: readText(form, "category", "虚拟产品"),
     description: readText(form, "description"),
-    download_name: readText(form, "download_name"),
-    delivery_content: readText(form, "delivery_content"),
+    download_name: downloadName,
+    delivery_content: deliveryContent,
     image_url: imageUrl,
   };
 

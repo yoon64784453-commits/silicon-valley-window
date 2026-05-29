@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, Copy, RefreshCw, Trash2 } from "lucide-react";
+import { ChevronDown, Copy, Download, RefreshCw, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 type Order = {
@@ -23,7 +23,10 @@ type Order = {
 };
 
 function isMissingOrderNumberColumn(error: { code?: string; message?: string }) {
-  return error.code === "42703" || error.message?.includes("order_no");
+  return (
+    error.code === "42703" ||
+    error.message?.includes("order_no")
+  );
 }
 
 function getDateParts(value: string) {
@@ -77,6 +80,10 @@ function formatOrderTime(value: string) {
     minute: "2-digit",
     hourCycle: "h23",
   }).format(date);
+}
+
+function extractFirstUrl(value: string | null) {
+  return value?.match(/https?:\/\/\S+/)?.[0] || "";
 }
 
 export default function DashboardPage() {
@@ -267,6 +274,7 @@ export default function DashboardPage() {
             const isPaid = order.status === "paid";
             const isExpanded = Boolean(expandedOrders[order.id]);
             const orderNo = getDisplayOrderNo(order);
+            const deliveryUrl = extractFirstUrl(item.delivery_content);
 
             return (
               <article className="card order-card" key={order.id}>
@@ -328,6 +336,16 @@ export default function DashboardPage() {
                             <p>
                               文件名称：{item.download_name}
                             </p>
+                          )}
+
+                          {deliveryUrl && (
+                            <a
+                              className="btn primary"
+                              href={deliveryUrl}
+                            >
+                              <Download size={16} />
+                              下载 ZIP 文件
+                            </a>
                           )}
 
                           <button

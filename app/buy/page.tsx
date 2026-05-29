@@ -45,7 +45,9 @@ function BuyContent() {
           return;
         }
 
-        setProduct(productData as Product);
+        const nextProduct = productData as Product;
+
+        setProduct(nextProduct);
 
         const { data: existingOrder } = await supabase
           .from("orders")
@@ -58,7 +60,7 @@ function BuyContent() {
           .maybeSingle();
 
         if (existingOrder?.status === "paid") {
-          setMessage("你已购买过该商品，交付内容已解锁。");
+          setMessage("你已拥有该商品，交付内容已解锁。");
           return;
         }
 
@@ -67,7 +69,11 @@ function BuyContent() {
           return;
         }
 
-        setMessage("确认订单后进入收银台。");
+        setMessage(
+          Number(nextProduct.price) <= 0
+            ? "该商品可免费下载，确认后会直接解锁。"
+            : "确认订单后进入收银台。"
+        );
       } catch (error) {
         console.error(error);
         setMessage("发生未知错误，请稍后重试。");
@@ -78,7 +84,7 @@ function BuyContent() {
   }, [searchParams]);
 
   async function startPay() {
-    setMessage("正在创建支付订单...");
+    setMessage(Number(product?.price || 0) <= 0 ? "正在解锁免费商品..." : "正在创建支付订单...");
 
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
@@ -168,7 +174,7 @@ function BuyContent() {
                 }}
               >
                 <button className="btn primary" style={{ width: "100%" }} onClick={startPay}>
-                  前往支付FM收银台
+                  {Number(product?.price || 0) <= 0 ? "免费获取" : "前往支付FM收银台"}
                 </button>
               </div>
 
@@ -202,7 +208,9 @@ function BuyContent() {
               >
                 <strong style={{ fontSize: 20 }}>订单摘要</strong>
                 <p style={{ margin: 0 }}>商品：{product?.title || "正在读取商品信息"}</p>
-                <p style={{ margin: 0 }}>应付金额：¥{product?.price ?? "--"}</p>
+                <p style={{ margin: 0 }}>
+                  应付金额：{Number(product?.price || 0) <= 0 ? "免费" : `¥${product?.price ?? "--"}`}
+                </p>
               </div>
             </div>
           </div>
